@@ -14,7 +14,6 @@ function Xeno:Create(titleText, scriptName)
     local currentConfig = "default"
     local SaveData = {}
 
-    -- ===== FOLDERS =====
     if makefolder then
         if not isfolder(baseFolder) then makefolder(baseFolder) end
         if not isfolder(scriptFolder) then makefolder(scriptFolder) end
@@ -25,10 +24,8 @@ function Xeno:Create(titleText, scriptName)
         return configFolder.."/"..name..".json"
     end
 
-    -- ===== CONFIG CORE =====
     local function loadConfig(name)
         currentConfig = name
-
         if readfile and isfile and isfile(getPath(name)) then
             SaveData = HttpService:JSONDecode(readfile(getPath(name)))
         else
@@ -61,7 +58,6 @@ function Xeno:Create(titleText, scriptName)
     createConfig(currentConfig)
     loadConfig(currentConfig)
 
-    -- ===== GUI =====
     local gui = Instance.new("ScreenGui")
     gui.Parent = player:WaitForChild("PlayerGui")
     gui.ResetOnSpawn = false
@@ -90,7 +86,7 @@ function Xeno:Create(titleText, scriptName)
     close.Parent = frame
 
     close.MouseButton1Click:Connect(function()
-        frame.Visible = false
+        gui:Destroy()
     end)
 
     local UI = {}
@@ -99,7 +95,6 @@ function Xeno:Create(titleText, scriptName)
     UI._binds = {}
     UI._elements = {}
 
-    -- ===== BUTTON =====
     function UI:Button(text, callback)
         local btn = Instance.new("TextButton")
         btn.Size = UDim2.new(1,-20,0,35)
@@ -117,7 +112,6 @@ function Xeno:Create(titleText, scriptName)
         return btn
     end
 
-    -- ===== TOGGLE =====
     function UI:Toggle(text, default, callback, saveKey)
         local state = default
 
@@ -164,7 +158,6 @@ function Xeno:Create(titleText, scriptName)
         return btn
     end
 
-    -- ===== TEXTBOX =====
     function UI:Textbox(placeholder, default, saveKey)
         local box = Instance.new("TextBox")
         box.Size = UDim2.new(0,90,0,30)
@@ -197,7 +190,6 @@ function Xeno:Create(titleText, scriptName)
         return box
     end
 
-    -- ===== KEYBINDS =====
     function UI:Bind(key, callback)
         self._binds[key] = callback
     end
@@ -212,11 +204,12 @@ function Xeno:Create(titleText, scriptName)
 
     function UI:BindToggle(key)
         self:Bind(key, function()
-            self._frame.Visible = not self._frame.Visible
+            if self._frame.Parent then
+                self._frame.Visible = not self._frame.Visible
+            end
         end)
     end
 
-    -- ===== CONFIG UI =====
     function UI:ConfigUI()
         local nameBox = self:Textbox("Config Name", "")
 
@@ -244,7 +237,6 @@ function Xeno:Create(titleText, scriptName)
         end)
     end
 
-    -- ===== CUSTOM =====
     function UI:Custom(func)
         return func(self._frame)
     end
