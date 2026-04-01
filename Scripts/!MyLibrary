@@ -1,0 +1,255 @@
+local Xeno = {}
+
+local player = game.Players.LocalPlayer
+local UIS = game:GetService("UserInputService")
+local HttpService = game:GetService("HttpService")
+
+function Xeno:Create(titleText, scriptName)
+    scriptName = scriptName or "DefaultScript"
+
+    local baseFolder = "ISCRIPTS"
+    local scriptFolder = baseFolder.."/"..scriptName
+    local configFolder = scriptFolder.."/configs"
+
+    local currentConfig = "default"
+    local SaveData = {}
+
+    -- ===== FOLDERS =====
+    if makefolder then
+        if not isfolder(baseFolder) then makefolder(baseFolder) end
+        if not isfolder(scriptFolder) then makefolder(scriptFolder) end
+        if not isfolder(configFolder) then makefolder(configFolder) end
+    end
+
+    local function getPath(name)
+        return configFolder.."/"..name..".json"
+    end
+
+    -- ===== CONFIG CORE =====
+    local function loadConfig(name)
+        currentConfig = name
+
+        if readfile and isfile and isfile(getPath(name)) then
+            SaveData = HttpService:JSONDecode(readfile(getPath(name)))
+        else
+            SaveData = {}
+        end
+    end
+
+    local function saveConfig()
+        if writefile then
+            writefile(getPath(currentConfig), HttpService:JSONEncode(SaveData))
+        end
+    end
+
+    local function createConfig(name)
+        if not isfile(getPath(name)) then
+            writefile(getPath(name), "{}")
+        end
+    end
+
+    local function getConfigs()
+        local files = listfiles and listfiles(configFolder) or {}
+        local names = {}
+        for _,f in pairs(files) do
+            local n = f:match("([^/]+)%.json$")
+            if n then table.insert(names, n) end
+        end
+        return names
+    end
+
+    createConfig(currentConfig)
+    loadConfig(currentConfig)
+
+    -- ===== GUI =====
+    local gui = Instance.new("ScreenGui")
+    gui.Parent = player:WaitForChild("PlayerGui")
+    gui.ResetOnSpawn = false
+
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(0, 320, 0, 450)
+    frame.Position = UDim2.new(0.5, -160, 0.5, -225)
+    frame.BackgroundColor3 = Color3.fromRGB(35,35,35)
+    frame.Active = true
+    frame.Draggable = true
+    frame.Parent = gui
+
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1,0,0,35)
+    title.BackgroundColor3 = Color3.fromRGB(25,25,25)
+    title.Text = titleText or "Xeno UI"
+    title.TextColor3 = Color3.new(1,1,1)
+    title.Parent = frame
+
+    local close = Instance.new("TextButton")
+    close.Size = UDim2.new(0,35,0,35)
+    close.Position = UDim2.new(1,-35,0,0)
+    close.Text = "X"
+    close.BackgroundColor3 = Color3.fromRGB(170,0,0)
+    close.TextColor3 = Color3.new(1,1,1)
+    close.Parent = frame
+
+    close.MouseButton1Click:Connect(function()
+        frame.Visible = false
+    end)
+
+    local UI = {}
+    UI._frame = frame
+    UI._y = 50
+    UI._binds = {}
+    UI._elements = {}
+
+    -- ===== BUTTON =====
+    function UI:Button(text, callback)
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(1,-20,0,35)
+        btn.Position = UDim2.new(0,10,0,self._y)
+        btn.Text = text
+        btn.BackgroundColor3 = Color3.fromRGB(60,60,60)
+        btn.TextColor3 = Color3.new(1,1,1)
+        btn.Parent = self._frame
+
+        btn.MouseButton1Click:Connect(function()
+            pcall(callback)
+        end)
+
+        self._y += 45
+        return btn
+    end
+
+    -- ===== TOGGLE =====
+    function UI:Toggle(text, default, callback, saveKey)
+        local state = default
+
+        if saveKey and SaveData[saveKey] ~= nil then
+            state = SaveData[saveKey]
+        end
+
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(1,-20,0,35)
+        btn.Position = UDim2.new(0,10,0,self._y)
+        btn.BackgroundColor3 = Color3.fromRGB(60,60,60)
+        btn.TextColor3 = Color3.new(1,1,1)
+        btn.Parent = self._frame
+
+        local function update()
+            btn.Text = text.." ["..(state and "ON" or "OFF").."]"
+        end
+
+        update()
+
+        btn.MouseButton1Click:Connect(function()
+            state = not state
+            update()
+
+            if saveKey then
+                SaveData[saveKey] = state
+                saveConfig()
+            end
+
+            pcall(callback, state)
+        end)
+
+        table.insert(self._elements, function()
+            if saveKey and SaveData[saveKey] ~= nil then
+                state = SaveData[saveKey]
+                update()
+                callback(state)
+            end
+        end)
+
+        callback(state)
+
+        self._y += 45
+        return btn
+    end
+
+    -- ===== TEXTBOX =====
+    function UI:Textbox(placeholder, default, saveKey)
+        local box = Instance.new("TextBox")
+        box.Size = UDim2.new(0,90,0,30)
+        box.Position = UDim2.new(0,10,0,self._y)
+        box.Text = default or ""
+        box.PlaceholderText = placeholder or "Input"
+        box.ClearTextOnFocus = true
+        box.BackgroundColor3 = Color3.fromRGB(50,50,50)
+        box.TextColor3 = Color3.new(1,1,1)
+        box.Parent = self._frame
+
+        if saveKey and SaveData[saveKey] then
+            box.Text = SaveData[saveKey]
+        end
+
+        box.FocusLost:Connect(function()
+            if saveKey then
+                SaveData[saveKey] = box.Text
+                saveConfig()
+            end
+        end)
+
+        table.insert(self._elements, function()
+            if saveKey and SaveData[saveKey] then
+                box.Text = SaveData[saveKey]
+            end
+        end)
+
+        self._y += 40
+        return box
+    end
+
+    -- ===== KEYBINDS =====
+    function UI:Bind(key, callback)
+        self._binds[key] = callback
+    end
+
+    UIS.InputBegan:Connect(function(input, gp)
+        if gp then return end
+        local key = input.KeyCode.Name
+        if UI._binds[key] then
+            pcall(UI._binds[key])
+        end
+    end)
+
+    function UI:BindToggle(key)
+        self:Bind(key, function()
+            self._frame.Visible = not self._frame.Visible
+        end)
+    end
+
+    -- ===== CONFIG UI =====
+    function UI:ConfigUI()
+        local nameBox = self:Textbox("Config Name", "")
+
+        self:Button("Create Config", function()
+            if nameBox.Text ~= "" then
+                createConfig(nameBox.Text)
+            end
+        end)
+
+        self:Button("Save Config", function()
+            saveConfig()
+        end)
+
+        self:Button("Load Config", function()
+            if nameBox.Text ~= "" then
+                loadConfig(nameBox.Text)
+                for _,fn in ipairs(self._elements) do
+                    fn()
+                end
+            end
+        end)
+
+        self:Button("List Configs (prints)", function()
+            print("Configs:", table.concat(getConfigs(), ", "))
+        end)
+    end
+
+    -- ===== CUSTOM =====
+    function UI:Custom(func)
+        return func(self._frame)
+    end
+
+    return UI
+end
+
+return Xeno
