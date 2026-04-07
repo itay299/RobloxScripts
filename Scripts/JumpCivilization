@@ -1,0 +1,132 @@
+local Xeno = loadstring(game:HttpGet("https://raw.githubusercontent.com/itay299/RobloxScripts/refs/heads/main/Scripts/!MyLibrary"))()
+
+local UI = Xeno:Create("Jump Civilization", "JumpCiv")
+UI:BindToggle("Semicolon")
+
+local pos1, pos2 = nil, nil
+
+-- ===== SAVE POSITIONS =====
+UI:Bind("K", function()
+    local char = game.Players.LocalPlayer.Character
+    if char and char:FindFirstChild("HumanoidRootPart") then
+        pos1 = char.HumanoidRootPart.CFrame
+        print("Saved Position 1")
+    end
+end)
+
+UI:Bind("L", function()
+    local char = game.Players.LocalPlayer.Character
+    if char and char:FindFirstChild("HumanoidRootPart") then
+        pos2 = char.HumanoidRootPart.CFrame
+        print("Saved Position 2")
+    end
+end)
+
+-- ===== WALKSPEED (CAPPED) =====
+local speedBox = UI:Textbox("WalkSpeed (max 48)", "16")
+
+UI:Button("Set WalkSpeed", function()
+    local char = game.Players.LocalPlayer.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+
+    if hum then
+        local num = tonumber(speedBox.Text)
+        if num then
+            if num > 48 then num = 48 end
+            if num < 0 then num = 0 end
+            hum.WalkSpeed = num
+        end
+    end
+end)
+
+-- ===== AUTO STREAK (5 TPS) =====
+UI:Toggle("Auto Streak", false, function(state)
+    getgenv().AutoStreak = state
+
+    if state then
+        task.spawn(function()
+            local delay = 0.2 -- 5 times per second
+
+            while getgenv().AutoStreak do
+                local char = game.Players.LocalPlayer.Character
+                if not char then task.wait() continue end
+
+                local hrp = char:FindFirstChild("HumanoidRootPart")
+                if not hrp then task.wait() continue end
+
+                if pos1 and pos2 then
+                    hrp.CFrame = pos1
+                    task.wait(delay)
+                    if not getgenv().AutoStreak then break end
+
+                    hrp.CFrame = pos2
+                    task.wait(delay)
+                else
+                    task.wait(0.1)
+                end
+            end
+        end)
+    end
+end)
+
+-- ===== NO GRAVITY (GROUND SNAP, FIXED) =====
+UI:Toggle("No Gravity", false, function(state)
+    getgenv().NoGrav = state
+
+    if state then
+        task.spawn(function()
+            local force = nil
+
+            while getgenv().NoGrav do
+                local char = game.Players.LocalPlayer.Character
+                if not char then task.wait() continue end
+
+                local hrp = char:FindFirstChild("HumanoidRootPart")
+                if not hrp then task.wait() continue end
+
+                -- anti-gravity force
+                if not force then
+                    force = Instance.new("BodyForce")
+                    force.Parent = hrp
+                end
+                force.Force = Vector3.new(0, hrp.AssemblyMass * workspace.Gravity, 0)
+
+                -- stop upward drift
+                local vel = hrp.Velocity
+                if vel.Y > 0 then
+                    hrp.Velocity = Vector3.new(vel.X, 0, vel.Z)
+                end
+
+                -- raycast 1.5 studs down, snap if <= 1
+                local origin = hrp.Position
+                local direction = Vector3.new(0, -1.5, 0)
+
+                local params = RaycastParams.new()
+                params.FilterDescendantsInstances = {char}
+                params.FilterType = Enum.RaycastFilterType.Blacklist
+
+                local result = workspace:Raycast(origin, direction, params)
+
+                if result then
+                    local dist = (origin - result.Position).Magnitude
+                    if dist <= 1 then
+                        local offset = 0.05 -- prevent jitter
+                        hrp.CFrame = hrp.CFrame - Vector3.new(0, dist - offset, 0)
+                    end
+                end
+
+                task.wait()
+            end
+
+            -- cleanup
+            local char = game.Players.LocalPlayer.Character
+            if char and char:FindFirstChild("HumanoidRootPart") then
+                for _, v in ipairs(char.HumanoidRootPart:GetChildren()) do
+                    if v:IsA("BodyForce") then
+                        v:Destroy()
+                    end
+                end
+            end
+        end)
+    end
+end)
