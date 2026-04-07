@@ -1,0 +1,315 @@
+
+local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
+local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"))()
+local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/InterfaceManager.lua"))()
+local Window = Fluent:CreateWindow({
+    Title = "Mango Clicker",
+    SubTitle = "by Phemonaz",
+    TabWidth = 160,
+    Size = UDim2.fromOffset(550, 430),
+    Acrylic = false,
+    Theme = "Darker",
+    MinimizeKey = Enum.KeyCode.LeftControl
+})
+local Tabs = {
+    Farm = Window:AddTab({ Title = "Farm", Icon = "box" }),
+    Upgrades = Window:AddTab({ Title = "Upgrades", Icon = "info" }),
+    Plants = Window:AddTab({ Title = "Plants", Icon = "leaf" }),
+    Settings = Window:AddTab({ Title = "Settings", Icon = "settings" })
+}
+
+
+
+local Options = Fluent.Options
+do
+-----
+-----
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local connection = nil
+local COOLDOWN = 0.0001
+local lastFired = 0
+local function clickOrange()
+    if os.clock() - lastFired >= COOLDOWN then
+        lastFired = os.clock()
+        ReplicatedStorage:WaitForChild("ClickOrange"):FireServer()
+    end
+end
+local function start()
+    if connection then return end
+    connection = RunService.Heartbeat:Connect(clickOrange)
+end
+local function stop()
+    if connection then
+        connection:Disconnect()
+        connection = nil
+        lastFired = 0
+    end
+end
+local Toggle = Tabs.Farm:AddToggle("ClickOrangeToggle", { Title = "Auto Click Mango", Default = false })
+Toggle:OnChanged(function()
+    if Options.ClickOrangeToggle.Value then
+        start()
+    else
+        stop()
+    end
+end)
+Options.ClickOrangeToggle:SetValue(false)
+-----
+-----
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local connections = {}
+local juicerInterval  = 2
+local upgradeInterval = 2
+local harvestInterval = 2
+local plantInterval   = 2
+local function fire(remoteName, ...)
+    ReplicatedStorage:WaitForChild(remoteName):FireServer(...)
+end
+local function startLoop(key, fn, getInterval)
+    if connections[key] then return end
+    local last = 0
+    connections[key] = RunService.Heartbeat:Connect(function()
+        local interval = tonumber(getInterval and getInterval() or 1)
+        if os.clock() - last >= interval then
+            last = os.clock()
+            fn()
+        end
+    end)
+end
+local function stopLoop(key)
+    if connections[key] then
+        connections[key]:Disconnect()
+        connections[key] = nil
+    end
+end
+local juicerMap = {
+    ["Wooden Juicer"]  = 1,
+    ["Stone Juicer"]   = 2,
+    ["Iron Juicer"]    = 3,
+    ["Gold Juicer"]    = 4,
+    ["Diamond Juicer"] = 5,
+    ["Mythic Juicer"]  = 6,
+}
+local selectedJuicers = {}
+Tabs.Upgrades:AddSection("Juicers")
+local JuicerDropdown = Tabs.Upgrades:AddDropdown("JuicerDropdown", {
+    Title = "Juicers to Upgrade",
+    Values = { "Wooden Juicer", "Stone Juicer", "Iron Juicer", "Gold Juicer", "Diamond Juicer", "Mythic Juicer" },
+    Multi = true,
+    Default = { "Wooden Juicer" },
+})
+JuicerDropdown:OnChanged(function(Value)
+    selectedJuicers = Value
+end)
+local JuicerSlider = Tabs.Upgrades:AddSlider("JuicerSlider", {
+    Title = "Upgrade Juicer Interval",
+    Default = 2,
+    Min = 0.1,
+    Max = 10,
+    Rounding = 1,
+    Callback = function(Value)
+        juicerInterval = tonumber(Value)
+    end
+})
+JuicerSlider:OnChanged(function(Value)
+    juicerInterval = tonumber(Value)
+end)
+local JuicerToggle = Tabs.Upgrades:AddToggle("AutoUpgradeJuicer", { Title = "Auto Upgrade Juicer", Default = false })
+JuicerToggle:OnChanged(function()
+    if Options.AutoUpgradeJuicer.Value then
+        startLoop("juicer", function()
+            for name, state in selectedJuicers do
+                if state then
+                    fire("UpgradeJuicer", juicerMap[name])
+                end
+            end
+        end, function() return juicerInterval end)
+    else
+        stopLoop("juicer")
+    end
+end)
+Options.AutoUpgradeJuicer:SetValue(false)
+local upgradeMap = {
+    ["Squeeze Power"]  = "squeeze_power",
+    ["Orange Quality"] = "orange_quality",
+    ["Turbo Squeeze"]  = "turbo_squeeze",
+    ["Click Power"]    = "click_power",
+    ["Golden Magnet"]  = "golden_magnet",
+    ["Golden Bounty"]  = "golden_bounty",
+    ["Rebirth Boost"]  = "rebirth_boost",
+    ["Head Start"]     = "head_start",
+}
+local selectedUpgrades = {}
+Tabs.Upgrades:AddSection("Upgrades")
+local BuyUpgradeDropdown = Tabs.Upgrades:AddDropdown("BuyUpgradeDropdown", {
+    Title = "Upgrades to Buy",
+    Values = { "Squeeze Power", "Orange Quality", "Turbo Squeeze", "Click Power", "Golden Magnet", "Golden Bounty", "Rebirth Boost", "Head Start" },
+    Multi = true,
+    Default = { "Squeeze Power" },
+})
+BuyUpgradeDropdown:OnChanged(function(Value)
+    selectedUpgrades = Value
+end)
+local BuyUpgradeSlider = Tabs.Upgrades:AddSlider("BuyUpgradeSlider", {
+    Title = "Buy Upgrade Interval",
+    Default = 2,
+    Min = 0.1,
+    Max = 10,
+    Rounding = 1,
+    Callback = function(Value)
+        upgradeInterval = tonumber(Value)
+    end
+})
+BuyUpgradeSlider:OnChanged(function(Value)
+    upgradeInterval = tonumber(Value)
+end)
+local BuyUpgradeToggle = Tabs.Upgrades:AddToggle("AutoBuyUpgrade", { Title = "Auto Buy Upgrades", Default = false })
+BuyUpgradeToggle:OnChanged(function()
+    if Options.AutoBuyUpgrade.Value then
+        startLoop("buyupgrade", function()
+            for name, state in selectedUpgrades do
+                if state then
+                    fire("BuyUpgrade", upgradeMap[name])
+                end
+            end
+        end, function() return upgradeInterval end)
+    else
+        stopLoop("buyupgrade")
+    end
+end)
+Options.AutoBuyUpgrade:SetValue(false)
+local seedMap = {
+    ["Orange Seedling"]      = "orange_seedling",
+    ["Tangerine Bush"]       = "tangerine_bush",
+    ["Blood Orange Tree"]    = "blood_orange_tree",
+    ["Golden Citrus"]        = "golden_citrus",
+    ["Starfruit Palm"]       = "starfruit_palm",
+    ["Mythic Grove Sapling"] = "mythic_grove_sapling",
+}
+local plotIndex     = { ["Plot 1"] = 1, ["Plot 2"] = 2, ["Plot 3"] = 3, ["Plot 4"] = 4 }
+local selectedPlots = {}
+local selectedSeed  = "orange_seedling"
+local PlotDropdown = Tabs.Plants:AddDropdown("PlotDropdown", {
+    Title = "Plots to Harvest & Plant",
+    Values = { "Plot 1", "Plot 2", "Plot 3", "Plot 4" },
+    Multi = true,
+    Default = { "Plot 1" },
+})
+PlotDropdown:OnChanged(function(Value)
+    selectedPlots = Value
+end)
+local SeedDropdown = Tabs.Plants:AddDropdown("SeedDropdown", {
+    Title = "Seed to Plant",
+    Values = { "Orange Seedling", "Tangerine Bush", "Blood Orange Tree", "Golden Citrus", "Starfruit Palm", "Mythic Grove Sapling" },
+    Multi = false,
+    Default = "Orange Seedling",
+})
+SeedDropdown:OnChanged(function(Value)
+    selectedSeed = seedMap[Value] or "orange_seedling"
+end)
+Tabs.Plants:AddSection("Harvesting")
+local HarvestSlider = Tabs.Plants:AddSlider("HarvestSlider", {
+    Title = "Harvest Interval",
+    Default = 2,
+    Min = 0.1,
+    Max = 5,
+    Rounding = 1,
+    Callback = function(Value)
+        harvestInterval = tonumber(Value)
+    end
+})
+HarvestSlider:OnChanged(function(Value)
+    harvestInterval = tonumber(Value)
+end)
+local HarvestToggle = Tabs.Plants:AddToggle("AutoHarvest", { Title = "Auto Harvest Plants", Default = false })
+HarvestToggle:OnChanged(function()
+    if Options.AutoHarvest.Value then
+        startLoop("harvest", function()
+            for name, state in selectedPlots do
+                if state then
+                    fire("HarvestPlant", plotIndex[name])
+                end
+            end
+        end, function() return harvestInterval end)
+    else
+        stopLoop("harvest")
+    end
+end)
+Options.AutoHarvest:SetValue(false)
+Tabs.Plants:AddSection("Planting")
+local PlantSlider = Tabs.Plants:AddSlider("PlantSlider", {
+    Title = "Plant Interval",
+    Default = 2,
+    Min = 0.1,
+    Max = 5,
+    Rounding = 1,
+    Callback = function(Value)
+        plantInterval = tonumber(Value)
+    end
+})
+PlantSlider:OnChanged(function(Value)
+    plantInterval = tonumber(Value)
+end)
+local PlantToggle = Tabs.Plants:AddToggle("AutoPlant", { Title = "Auto Plant Seed", Default = false })
+PlantToggle:OnChanged(function()
+    if Options.AutoPlant.Value then
+        startLoop("plant", function()
+            for name, state in selectedPlots do
+                if state then
+                    fire("PlantSeed", selectedSeed, plotIndex[name])
+                end
+            end
+        end, function() return plantInterval end)
+    else
+        stopLoop("plant")
+    end
+end)
+Options.AutoPlant:SetValue(false)
+local InvasionToggle = Tabs.Farm:AddToggle("AutoInvasion", { Title = "Auto Attack Invaders", Default = false })
+InvasionToggle:OnChanged(function()
+    if Options.AutoInvasion.Value then
+        startLoop("invasion", function()
+            fire("InvasionAttack")
+        end, function() return 0.0000001 end)
+    else
+        stopLoop("invasion")
+    end
+end)
+Options.AutoInvasion:SetValue(false)
+local RebirthToggle = Tabs.Farm:AddToggle("AutoRebirth", { Title = "Auto Rebirth", Default = false })
+RebirthToggle:OnChanged(function()
+    if Options.AutoRebirth.Value then
+        startLoop("rebirth", function()
+            fire("Rebirth")
+        end, function() return 1 end)
+    else
+        stopLoop("rebirth")
+    end
+end)
+Options.AutoRebirth:SetValue(false)
+local GoldenToggle = Tabs.Farm:AddToggle("AutoGoldenOrange", { Title = "Auto Claim Golden Orange", Default = false })
+GoldenToggle:OnChanged(function()
+    if Options.AutoGoldenOrange.Value then
+        startLoop("goldenorange", function()
+            fire("ClaimGoldenOrange")
+        end, function() return 0.01 end)
+    else
+        stopLoop("goldenorange")
+    end
+end)
+Options.AutoGoldenOrange:SetValue(false)
+-----
+-----
+SaveManager:SetLibrary(Fluent)
+InterfaceManager:SetLibrary(Fluent)
+SaveManager:IgnoreThemeSettings()
+SaveManager:SetIgnoreIndexes({})
+InterfaceManager:SetFolder("FluentScriptHub")
+SaveManager:SetFolder("FluentScriptHub/specific-game")
+InterfaceManager:BuildInterfaceSection(Tabs.Settings)
+SaveManager:BuildConfigSection(Tabs.Settings)
+Window:SelectTab(1)
+SaveManager:LoadAutoloadConfig()
+end
