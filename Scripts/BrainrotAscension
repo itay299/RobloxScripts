@@ -1,0 +1,21 @@
+local Xeno = loadstring(game:HttpGet("https://raw.githubusercontent.com/itay299/RobloxScripts/refs/heads/main/Scripts/!MyLibrary"))()
+
+local UI = Xeno:Create("Brainrot Ascension", "BrainrotAscension")
+UI:BindToggle("Semicolon")
+
+local player = game.Players.LocalPlayer
+
+local function tpTo(pos)
+    local char = player.Character or player.CharacterAdded:Wait()
+    local hrp = char:WaitForChild("HumanoidRootPart")
+    hrp.CFrame = CFrame.new(pos)
+end
+
+-- Buttons
+UI:Button("Go to Spawn", function()
+    tpTo(Vector3.new(-26, 1, 536.60))
+end)
+
+UI:Button("Go to End", function()
+    tpTo(Vector3.new(3754, 1.25, 586.68))
+end)
