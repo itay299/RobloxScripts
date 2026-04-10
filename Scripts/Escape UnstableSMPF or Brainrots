@@ -1,0 +1,277 @@
+local player = game.Players.LocalPlayer
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local spawnX, spawnY, spawnZ = -435, 18, -412
+local noPromptTP = Vector3.new(-541.46, 18.69, -377.22)
+local secretSpawn = Vector3.new(-430, 19, 2743)
+local emptyTP = Vector3.new(-541.12, 18.6, -376.89)
+
+-- ===== GUI =====
+local gui = Instance.new("ScreenGui")
+gui.Parent = player:WaitForChild("PlayerGui")
+gui.ResetOnSpawn = false
+
+local frame = Instance.new("Frame")
+frame.Size = UDim2.new(0, 320, 0, 450)
+frame.Position = UDim2.new(0.5, -160, 0.5, -225)
+frame.BackgroundColor3 = Color3.fromRGB(35,35,35)
+frame.Active = true
+frame.Draggable = true
+frame.Parent = gui
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, 0, 0, 35)
+title.BackgroundColor3 = Color3.fromRGB(25,25,25)
+title.Text = "Escape USMP For Brainrots"
+title.TextColor3 = Color3.new(1,1,1)
+title.Parent = frame
+
+local close = Instance.new("TextButton")
+close.Size = UDim2.new(0, 35, 0, 35)
+close.Position = UDim2.new(1, -35, 0, 0)
+close.Text = "X"
+close.BackgroundColor3 = Color3.fromRGB(170,0,0)
+close.TextColor3 = Color3.new(1,1,1)
+close.Parent = frame
+close.MouseButton1Click:Connect(function()
+	frame.Visible = false
+end)
+
+local function makeButton(text, y, callback)
+	local btn = Instance.new("TextButton")
+	btn.Size = UDim2.new(1, -20, 0, 35)
+	btn.Position = UDim2.new(0, 10, 0, y)
+	btn.Text = text
+	btn.BackgroundColor3 = Color3.fromRGB(60,60,60)
+	btn.TextColor3 = Color3.new(1,1,1)
+	btn.Parent = frame
+	btn.MouseButton1Click:Connect(callback)
+	return btn
+end
+
+-- ===== BASIC BUTTONS =====
+makeButton("Teleport to End", 50, function()
+	local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+	if hrp then
+		hrp.CFrame = CFrame.new(-437, 10, 2230)
+	end
+end)
+
+makeButton("Go to Spawn", 95, function()
+	local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+	if hrp then
+		hrp.CFrame = CFrame.new(spawnX, spawnY, spawnZ)
+	end
+end)
+
+-- ===== Once / Always Toggle =====
+local modeButton = Instance.new("TextButton")
+modeButton.Size = UDim2.new(0, 90, 0, 30)
+modeButton.Position = UDim2.new(0, 10, 0, 140)
+modeButton.Text = "Always"
+modeButton.BackgroundColor3 = Color3.fromRGB(50,50,50)
+modeButton.TextColor3 = Color3.new(1,1,1)
+modeButton.Parent = frame
+
+modeButton.MouseButton1Click:Connect(function()
+	modeButton.Text = (modeButton.Text == "Always") and "Once" or "Always"
+end)
+
+-- ===== Clear Protagonists =====
+local clearProButton = Instance.new("TextButton")
+clearProButton.Size = UDim2.new(1, -120, 0, 35)
+clearProButton.Position = UDim2.new(0, 110, 0, 140)
+clearProButton.Text = "Clear Protagonists"
+clearProButton.BackgroundColor3 = Color3.fromRGB(60,60,60)
+clearProButton.TextColor3 = Color3.new(1,1,1)
+clearProButton.Parent = frame
+
+local function clearProtagonistsOnce()
+	local tsunamisFolder = workspace:FindFirstChild("Tsunamis")
+	if not tsunamisFolder then return end
+	for _, v in pairs(tsunamisFolder:GetChildren()) do
+		v:Destroy()
+	end
+end
+
+clearProButton.MouseButton1Click:Connect(function()
+	if modeButton.Text == "Once" then
+		clearProtagonistsOnce()
+	else
+		local tsunamisFolder = workspace:FindFirstChild("Tsunamis")
+		if tsunamisFolder then
+			tsunamisFolder:Destroy()
+		end
+	end
+end)
+
+-- ===== Clear VIP Doors =====
+makeButton("Clear VIP Doors", 185, function()
+	local mainMap = workspace:FindFirstChild("MainMap")
+	if not mainMap then return end
+
+	for _, obj in ipairs(mainMap:GetDescendants()) do
+		if obj.Name == "VIPPart" and obj:IsA("BasePart") then
+			obj:Destroy()
+		end
+	end
+end)
+
+-- ===== AUTO SECRET (LOW LAG + CLEAR PRO + TELEPORT ON EMPTY) =====
+local autoSecretEnabled = false
+local loopCount = 0
+local cachedPrompts = {}
+local emptyTeleported = false
+local clearingTimerActive = false
+
+local carryBox = Instance.new("TextBox")
+carryBox.Size = UDim2.new(0, 90, 0, 30)
+carryBox.Position = UDim2.new(0, 10, 0, 230)
+carryBox.Text = "6"
+carryBox.PlaceholderText = "Carry"
+carryBox.ClearTextOnFocus = true
+carryBox.BackgroundColor3 = Color3.fromRGB(50,50,50)
+carryBox.TextColor3 = Color3.new(1,1,1)
+carryBox.Parent = frame
+
+local autoSecretButton = Instance.new("TextButton")
+autoSecretButton.Size = UDim2.new(1, -120, 0, 35)
+autoSecretButton.Position = UDim2.new(0, 110, 0, 230)
+autoSecretButton.Text = "Auto Secret [OFF]"
+autoSecretButton.BackgroundColor3 = Color3.fromRGB(60,60,60)
+autoSecretButton.TextColor3 = Color3.new(1,1,1)
+autoSecretButton.Parent = frame
+
+autoSecretButton.MouseButton1Click:Connect(function()
+	autoSecretEnabled = not autoSecretEnabled
+	autoSecretButton.Text = autoSecretEnabled and "Auto Secret [ON]" or "Auto Secret [OFF]"
+end)
+
+task.spawn(function()
+	local minBound = Vector3.new(-496.6, 10, 2243)
+	local maxBound = Vector3.new(-376, 50, 2744)
+
+	local function refreshPrompts()
+		table.clear(cachedPrompts)
+		for _, obj in ipairs(workspace:GetDescendants()) do
+			if obj:IsA("ProximityPrompt") and obj.Parent:IsA("BasePart") then
+				local pos = obj.Parent.Position
+				if pos.X >= minBound.X and pos.X <= maxBound.X
+				and pos.Y >= minBound.Y and pos.Y <= maxBound.Y
+				and pos.Z >= minBound.Z and pos.Z <= maxBound.Z then
+					table.insert(cachedPrompts, obj)
+				end
+			end
+		end
+	end
+
+	refreshPrompts()
+
+	local clearStartTime = 0
+	local clearDuration = 10
+
+	while true do
+		if not autoSecretEnabled then
+			task.wait(0.5)
+			continue
+		end
+
+		local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+		if not hrp then
+			task.wait(0.5)
+			continue
+		end
+
+		local maxLoops = tonumber(carryBox.Text)
+		if not maxLoops or maxLoops < 1 then
+			maxLoops = 1
+		end
+
+		-- Clean cached prompts
+		for i = #cachedPrompts, 1, -1 do
+			if not cachedPrompts[i] or not cachedPrompts[i].Parent then
+				table.remove(cachedPrompts, i)
+			end
+		end
+
+		if #cachedPrompts == 0 then
+			if not emptyTeleported then
+				hrp.CFrame = CFrame.new(emptyTP)
+				emptyTeleported = true
+			end
+			clearingTimerActive = false -- stop clearing if no prompts
+			task.wait(1.5)
+			refreshPrompts()
+			continue
+		else
+			emptyTeleported = false
+		end
+
+		local prompt = cachedPrompts[1]
+
+		if loopCount >= maxLoops then
+			hrp.CFrame = CFrame.new(noPromptTP)
+			task.wait(0.25)
+			loopCount = 0
+		end
+
+		-- Teleport to prompt
+		hrp.CFrame = CFrame.new(prompt.Parent.Position + Vector3.new(0,3,0))
+		task.wait(0.2)
+
+		pcall(function()
+			prompt:InputHoldBegin(player)
+			task.wait(0.1)
+			prompt:InputHoldEnd(player)
+		end)
+
+		loopCount += 1
+
+		-- ===== Clear Protagonists ONCE timer logic =====
+		if not clearingTimerActive then
+			clearingTimerActive = true
+			clearStartTime = tick()
+			task.spawn(function()
+				local additionalTime = 0
+				while clearingTimerActive and tick() - clearStartTime < clearDuration + additionalTime do
+					if #cachedPrompts == 0 then
+						break -- stop clearing if no more prompts
+					end
+					clearProtagonistsOnce()
+					task.wait(0.5)
+					if #cachedPrompts > 0 and tick() - clearStartTime > clearDuration + additionalTime then
+						additionalTime += 5
+					end
+				end
+				clearingTimerActive = false
+			end)
+		end
+
+		task.wait(0.2)
+	end
+end)
+
+-- ===== AUTO REBIRTH =====
+local autoRebirthEnabled = false
+
+local autoRebirthButton = makeButton("Auto Rebirth [OFF]", 280, function()
+	autoRebirthEnabled = not autoRebirthEnabled
+	autoRebirthButton.Text = autoRebirthEnabled and "Auto Rebirth [ON]" or "Auto Rebirth [OFF]"
+end)
+
+task.spawn(function()
+	while true do
+		task.wait(0.25)
+		if autoRebirthEnabled then
+			local eventsFolder = ReplicatedStorage:FindFirstChild("Events")
+			if eventsFolder then
+				local rebirthEvent = eventsFolder:FindFirstChild("RequestRebirth")
+				if rebirthEvent and rebirthEvent:IsA("RemoteEvent") then
+					pcall(function()
+						rebirthEvent:FireServer()
+					end)
+				end
+			end
+		end
+	end
+end)
