@@ -1,9 +1,10 @@
 ## Script Description
 
-| Script | Description |
+| Script | Features |
 |--------|-------------|
-| Be A Lucky Block | A game where you interact with lucky blocks that give random effects and rewards |
-| Brainrot Ascension | A chaotic progression game focused on increasing “brainrot” levels through upgrades |
-| Dont Steal the Brainrot | A protection-based game where you defend your brainrot from being stolen by others |
-| Jump Civilization | A movement-based progression game where jumping is the main mechanic to advance |
-| Mango Clicker | A clicker game where you generate mangoes to unlock upgrades and progress |
+| [Be A Lucky Block](Scripts/Be%20A%20Lucky%20Block.lua) | Auto things bro. alot |
+| [Brainrot Ascension](Scripts/BrainrotAscension) | Auto Go to best Area & Auto Rebirth |
+| [Dont Steal the Brainrot](Scripts/Dont%20Steal%20the%20Brainrot.lua) |Auto Secret/Raritys & Auto Collect Cash & Auto Spin & Auto Upgrade Plot |
+| [Jump Civilization](Scripts/JumpCivilization) | Auto Jump Streak |
+| [Mango Clicker](Scripts/MangoClicker) | Auto Buy & Auto Rebirth |
+| [Steal from Sammy](Scripts/StealFromSammy.lua) | Auto OG & Go to Spawn & Go to End |
