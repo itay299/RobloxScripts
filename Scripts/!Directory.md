@@ -20,7 +20,7 @@
 |--------|----------|
 | 🎲 [Be A Lucky Block](Be%20A%20Lucky%20Block.lua) | Auto things bro. alot |
 | 🧠 [Brainrot Ascension](Brainrot%20Ascension.lua) | Auto Go to best Area & Auto Rebirth |
-| 🛡️ [Dont Steal the Brainrot](Dont%20Steal%20the%20Brainrot.lua) | Auto Secret/Raritys & Auto Collect Cash & Auto Spin & Auto Upgrade Plot |
+| 🛡️ [Dont Steal the Brainrot](Dont%20Steal%20the%20Brainrot.lua) | Auto Secret/Raritys & Auto Collect Cash & Auto Spin & Auto Upgrade Plot & Auto Quest Farm |
 | 🦘 [Jump Civilization](Jump%20Civilization.lua) | Auto Jump Streak |
 | 🥭 [Mango Clicker](MangoClicker.lua) | Auto Buy & Auto Rebirth |
 | 🚨 [Steal from Sammy](StealFromSammy.lua) | Auto OG & Go to Spawn & Go to End |
