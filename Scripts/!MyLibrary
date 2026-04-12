@@ -1,72 +1,327 @@
-local Xeno = loadstring(game:HttpGet("https://raw.githubusercontent.com/itay299/RobloxScripts/refs/heads/main/Scripts/!MyLibrary"))()
-
-local UI = Xeno:Create("Dropdown Test", "TestScript")
+local Xeno = {}
 
 local player = game.Players.LocalPlayer
+local UIS = game:GetService("UserInputService")
+local HttpService = game:GetService("HttpService")
 
-local locations = {
-    Base = Vector3.new(0, 10, 0),
-    Shop = Vector3.new(100, 10, 0),
-    Spawn = Vector3.new(-50, 10, 20),
-    Tower = Vector3.new(200, 50, 200),
-    Cave = Vector3.new(-200, 15, -120),
-}
+function Xeno:Create(titleText, scriptName)
+    scriptName = scriptName or "DefaultScript"
 
-local selected = "Base"
-local heightOffset = 0
+    local baseFolder = "ISCRIPTS"
+    local scriptFolder = baseFolder.."/"..scriptName
+    local configFolder = scriptFolder.."/configs"
 
-UI:Dropdown(
-    "Teleport To",
-    {"Base", "Shop", "Spawn", "Tower", "Cave"},
-    "Base",
-    function(v)
-        selected = v
-    end,
-    "tp_location"
-)
+    local currentConfig = "default"
+    local SaveData = {}
 
-UI:Dropdown(
-    "Height Offset",
-    {"+5", "+10", "+25"},
-    "+5",
-    function(v)
-        if v == "+5" then
-            heightOffset = 5
-        elseif v == "+10" then
-            heightOffset = 10
-        elseif v == "+25" then
-            heightOffset = 25
+    if makefolder then
+        if not isfolder(baseFolder) then makefolder(baseFolder) end
+        if not isfolder(scriptFolder) then makefolder(scriptFolder) end
+        if not isfolder(configFolder) then makefolder(configFolder) end
+    end
+
+    local function getPath(name)
+        return configFolder.."/"..name..".json"
+    end
+
+    local function loadConfig(name)
+        currentConfig = name
+        if readfile and isfile and isfile(getPath(name)) then
+            SaveData = HttpService:JSONDecode(readfile(getPath(name)))
+        else
+            SaveData = {}
         end
-    end,
-    "tp_height"
-)
-
-UI:Button("Teleport", function()
-    local char = player.Character
-    if not char then return end
-
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
-
-    local pos = locations[selected]
-    if pos then
-        hrp.CFrame = CFrame.new(pos + Vector3.new(0, heightOffset, 0))
     end
-end)
 
-UI:Button("Teleport + Instant Up", function()
-    local char = player.Character
-    if not char then return end
-
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
-
-    local pos = locations[selected]
-    if pos then
-        hrp.CFrame = CFrame.new(pos + Vector3.new(0, heightOffset + 5, 0))
+    local function saveConfig()
+        if writefile then
+            writefile(getPath(currentConfig), HttpService:JSONEncode(SaveData))
+        end
     end
-end)
 
-UI:Toggle("Print Selection", false, function(v)
-    print("Selected:", selected, "Offset:", heightOffset, v)
-end, "debug")
+    local function createConfig(name)
+        if not isfile(getPath(name)) then
+            writefile(getPath(name), "{}")
+        end
+    end
+
+    local function getConfigs()
+        local files = listfiles and listfiles(configFolder) or {}
+        local names = {}
+        for _,f in pairs(files) do
+            local n = f:match("([^/]+)%.json$")
+            if n then table.insert(names, n) end
+        end
+        return names
+    end
+
+    createConfig(currentConfig)
+    loadConfig(currentConfig)
+
+    local gui = Instance.new("ScreenGui")
+    gui.Parent = player:WaitForChild("PlayerGui")
+    gui.ResetOnSpawn = false
+    gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(0, 320, 0, 450)
+    frame.Position = UDim2.new(0.5, -160, 0.5, -225)
+    frame.BackgroundColor3 = Color3.fromRGB(35,35,35)
+    frame.Active = true
+    frame.Draggable = true
+    frame.Parent = gui
+
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1,0,0,35)
+    title.BackgroundColor3 = Color3.fromRGB(25,25,25)
+    title.Text = titleText or "Xeno UI"
+    title.TextColor3 = Color3.new(1,1,1)
+    title.Parent = frame
+
+    local close = Instance.new("TextButton")
+    close.Size = UDim2.new(0,35,0,35)
+    close.Position = UDim2.new(1,-35,0,0)
+    close.Text = "X"
+    close.BackgroundColor3 = Color3.fromRGB(170,0,0)
+    close.TextColor3 = Color3.new(1,1,1)
+    close.Parent = frame
+
+    close.MouseButton1Click:Connect(function()
+        gui:Destroy()
+    end)
+
+    local UI = {}
+    UI._frame = frame
+    UI._y = 50
+    UI._binds = {}
+    UI._elements = {}
+
+    function UI:Button(text, callback)
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(1,-20,0,35)
+        btn.Position = UDim2.new(0,10,0,self._y)
+        btn.Text = text
+        btn.BackgroundColor3 = Color3.fromRGB(60,60,60)
+        btn.TextColor3 = Color3.new(1,1,1)
+        btn.Parent = self._frame
+
+        btn.MouseButton1Click:Connect(function()
+            pcall(callback)
+        end)
+
+        self._y += 45
+        return btn
+    end
+
+    function UI:Toggle(text, default, callback, saveKey)
+        local state = default
+        if saveKey and SaveData[saveKey] ~= nil then
+            state = SaveData[saveKey]
+        end
+
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(1,-20,0,35)
+        btn.Position = UDim2.new(0,10,0,self._y)
+        btn.BackgroundColor3 = Color3.fromRGB(60,60,60)
+        btn.TextColor3 = Color3.new(1,1,1)
+        btn.Parent = self._frame
+
+        local function update()
+            btn.Text = text.." ["..(state and "ON" or "OFF").."]"
+        end
+
+        update()
+
+        btn.MouseButton1Click:Connect(function()
+            state = not state
+            update()
+
+            if saveKey then
+                SaveData[saveKey] = state
+                saveConfig()
+            end
+
+            pcall(callback, state)
+        end)
+
+        callback(state)
+        self._y += 45
+        return btn
+    end
+
+    function UI:Textbox(placeholder, default, saveKey)
+        local box = Instance.new("TextBox")
+        box.Size = UDim2.new(0,120,0,30)
+        box.Position = UDim2.new(0,10,0,self._y)
+        box.Text = default or ""
+        box.PlaceholderText = placeholder or "Input"
+        box.BackgroundColor3 = Color3.fromRGB(50,50,50)
+        box.TextColor3 = Color3.new(1,1,1)
+        box.Parent = self._frame
+
+        if saveKey and SaveData[saveKey] then
+            box.Text = SaveData[saveKey]
+        end
+
+        box.FocusLost:Connect(function()
+            if saveKey then
+                SaveData[saveKey] = box.Text
+                saveConfig()
+            end
+        end)
+
+        self._y += 40
+        return box
+    end
+
+    -- DROPDOWN (NO BLUR VERSION)
+    function UI:Dropdown(text, options, default, callback, saveKey)
+        options = options or {}
+
+        local selected = default or options[1]
+        if saveKey and SaveData[saveKey] then
+            selected = SaveData[saveKey]
+        end
+
+        local open = false
+
+        local holder = Instance.new("Frame")
+        holder.Size = UDim2.new(1,-20,0,35)
+        holder.Position = UDim2.new(0,10,0,self._y)
+        holder.BackgroundColor3 = Color3.fromRGB(45,45,45)
+        holder.BorderSizePixel = 0
+        holder.Parent = self._frame
+
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(1,0,1,0)
+        btn.BackgroundTransparency = 1
+        btn.TextColor3 = Color3.new(1,1,1)
+        btn.TextXAlignment = Enum.TextXAlignment.Left
+        btn.Parent = holder
+
+        local arrow = Instance.new("TextLabel")
+        arrow.Size = UDim2.new(0,20,1,0)
+        arrow.Position = UDim2.new(1,-20,0,0)
+        arrow.BackgroundTransparency = 1
+        arrow.Text = "▼"
+        arrow.TextColor3 = Color3.new(1,1,1)
+        arrow.Parent = holder
+
+        local listFrame = Instance.new("Frame")
+        listFrame.Size = UDim2.new(0,200,0,0)
+        listFrame.BackgroundColor3 = Color3.fromRGB(30,30,30)
+        listFrame.BorderSizePixel = 0
+        listFrame.Visible = false
+        listFrame.Parent = gui
+
+        local layout = Instance.new("UIListLayout")
+        layout.Parent = listFrame
+
+        local function refresh()
+            btn.Text = "  " .. text .. ": " .. tostring(selected)
+        end
+
+        local function build()
+            for _,v in pairs(listFrame:GetChildren()) do
+                if v:IsA("TextButton") then v:Destroy() end
+            end
+
+            for _,opt in ipairs(options) do
+                local o = Instance.new("TextButton")
+                o.Size = UDim2.new(1,0,0,28)
+                o.Text = "  " .. opt
+                o.BackgroundColor3 = Color3.fromRGB(55,55,55)
+                o.TextColor3 = Color3.new(1,1,1)
+                o.Parent = listFrame
+
+                o.MouseButton1Click:Connect(function()
+                    selected = opt
+                    open = false
+
+                    listFrame.Visible = false
+                    arrow.Text = "▼"
+
+                    if saveKey then
+                        SaveData[saveKey] = selected
+                        saveConfig()
+                    end
+
+                    refresh()
+                    pcall(callback, selected)
+                end)
+            end
+        end
+
+        build()
+        refresh()
+
+        local function updatePos()
+            local pos = holder.AbsolutePosition
+            listFrame.Position = UDim2.new(0, pos.X, 0, pos.Y + 35)
+        end
+
+        btn.MouseButton1Click:Connect(function()
+            open = not open
+
+            if open then
+                updatePos()
+                listFrame.Visible = true
+                listFrame.Size = UDim2.new(0,200,0,#options * 28)
+                arrow.Text = "▲"
+            else
+                listFrame.Visible = false
+                arrow.Text = "▼"
+            end
+        end)
+
+        self._y += 45
+        return holder
+    end
+
+    function UI:Bind(key, callback)
+        self._binds[key] = callback
+    end
+
+    UIS.InputBegan:Connect(function(input, gp)
+        if gp then return end
+        local key = input.KeyCode.Name
+        if UI._binds[key] then
+            pcall(UI._binds[key])
+        end
+    end)
+
+    function UI:BindToggle(key)
+        self:Bind(key, function()
+            frame.Visible = not frame.Visible
+        end)
+    end
+
+    function UI:ConfigUI()
+        local nameBox = self:Textbox("Config Name", "")
+
+        self:Button("Create", function()
+            if nameBox.Text ~= "" then
+                createConfig(nameBox.Text)
+            end
+        end)
+
+        self:Button("Save", function()
+            saveConfig()
+        end)
+
+        self:Button("Load", function()
+            if nameBox.Text ~= "" then
+                loadConfig(nameBox.Text)
+                for _,fn in ipairs(self._elements) do fn() end
+            end
+        end)
+
+        self:Button("List", function()
+            print(table.concat(getConfigs(), ", "))
+        end)
+    end
+
+    return UI
+end
+
+return Xeno
