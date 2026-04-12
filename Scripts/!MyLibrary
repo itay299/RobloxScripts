@@ -3,6 +3,7 @@ local Xeno = {}
 local player = game.Players.LocalPlayer
 local UIS = game:GetService("UserInputService")
 local HttpService = game:GetService("HttpService")
+local Lighting = game:GetService("Lighting")
 
 function Xeno:Create(titleText, scriptName)
     scriptName = scriptName or "DefaultScript"
@@ -61,6 +62,7 @@ function Xeno:Create(titleText, scriptName)
     local gui = Instance.new("ScreenGui")
     gui.Parent = player:WaitForChild("PlayerGui")
     gui.ResetOnSpawn = false
+    gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
     local frame = Instance.new("Frame")
     frame.Size = UDim2.new(0, 320, 0, 450)
@@ -116,7 +118,6 @@ function Xeno:Create(titleText, scriptName)
     -- TOGGLE
     function UI:Toggle(text, default, callback, saveKey)
         local state = default
-
         if saveKey and SaveData[saveKey] ~= nil then
             state = SaveData[saveKey]
         end
@@ -146,16 +147,7 @@ function Xeno:Create(titleText, scriptName)
             pcall(callback, state)
         end)
 
-        table.insert(self._elements, function()
-            if saveKey and SaveData[saveKey] ~= nil then
-                state = SaveData[saveKey]
-                update()
-                callback(state)
-            end
-        end)
-
         callback(state)
-
         self._y += 45
         return btn
     end
@@ -163,11 +155,10 @@ function Xeno:Create(titleText, scriptName)
     -- TEXTBOX
     function UI:Textbox(placeholder, default, saveKey)
         local box = Instance.new("TextBox")
-        box.Size = UDim2.new(0,90,0,30)
+        box.Size = UDim2.new(0,120,0,30)
         box.Position = UDim2.new(0,10,0,self._y)
         box.Text = default or ""
         box.PlaceholderText = placeholder or "Input"
-        box.ClearTextOnFocus = true
         box.BackgroundColor3 = Color3.fromRGB(50,50,50)
         box.TextColor3 = Color3.new(1,1,1)
         box.Parent = self._frame
@@ -187,7 +178,7 @@ function Xeno:Create(titleText, scriptName)
         return box
     end
 
-    -- DROPDOWN (NEW)
+    -- 🔥 DROPDOWN (SCROLL + BLUR + OVERLAY FIXED)
     function UI:Dropdown(text, options, default, callback, saveKey)
         options = options or {}
 
@@ -198,27 +189,63 @@ function Xeno:Create(titleText, scriptName)
 
         local open = false
 
+        local blur = Instance.new("BlurEffect")
+        blur.Size = 0
+        blur.Parent = Lighting
+
+        local overlay = Instance.new("Frame")
+        overlay.Size = UDim2.new(1,0,1,0)
+        overlay.BackgroundColor3 = Color3.new(0,0,0)
+        overlay.BackgroundTransparency = 1
+        overlay.ZIndex = 998
+        overlay.Parent = self._frame
+
         local holder = Instance.new("Frame")
         holder.Size = UDim2.new(1,-20,0,35)
         holder.Position = UDim2.new(0,10,0,self._y)
-        holder.BackgroundColor3 = Color3.fromRGB(60,60,60)
+        holder.BackgroundColor3 = Color3.fromRGB(45,45,45)
+        holder.BorderSizePixel = 0
         holder.Parent = self._frame
+        holder.ZIndex = 100
 
         local btn = Instance.new("TextButton")
         btn.Size = UDim2.new(1,0,1,0)
         btn.BackgroundTransparency = 1
         btn.TextColor3 = Color3.new(1,1,1)
+        btn.TextXAlignment = Enum.TextXAlignment.Left
+        btn.Font = Enum.Font.SourceSansBold
+        btn.TextSize = 16
+        btn.ZIndex = 101
         btn.Parent = holder
 
-        local list = Instance.new("Frame")
+        local arrow = Instance.new("TextLabel")
+        arrow.Size = UDim2.new(0,20,1,0)
+        arrow.Position = UDim2.new(1,-20,0,0)
+        arrow.BackgroundTransparency = 1
+        arrow.Text = "▼"
+        arrow.TextColor3 = Color3.new(1,1,1)
+        arrow.Font = Enum.Font.SourceSansBold
+        arrow.TextSize = 16
+        arrow.ZIndex = 102
+        arrow.Parent = holder
+
+        -- SCROLL FRAME
+        local list = Instance.new("ScrollingFrame")
         list.Size = UDim2.new(1,0,0,0)
-        list.Position = UDim2.new(0,0,1,0)
-        list.BackgroundColor3 = Color3.fromRGB(45,45,45)
-        list.ClipsDescendants = true
+        list.Position = UDim2.new(0,0,1,2)
+        list.BackgroundColor3 = Color3.fromRGB(30,30,30)
+        list.BorderSizePixel = 0
+        list.ScrollBarThickness = 5
+        list.AutomaticCanvasSize = Enum.AutomaticSize.Y
+        list.CanvasSize = UDim2.new(0,0,0,0)
+        list.ZIndex = 999
         list.Parent = holder
 
+        local layout = Instance.new("UIListLayout")
+        layout.Parent = list
+
         local function refresh()
-            btn.Text = text..": "..tostring(selected)
+            btn.Text = "  " .. text .. ": " .. tostring(selected)
         end
 
         local function clear()
@@ -231,16 +258,22 @@ function Xeno:Create(titleText, scriptName)
             clear()
             for _,opt in ipairs(options) do
                 local o = Instance.new("TextButton")
-                o.Size = UDim2.new(1,0,0,25)
-                o.Text = opt
+                o.Size = UDim2.new(1,0,0,28)
                 o.BackgroundColor3 = Color3.fromRGB(55,55,55)
                 o.TextColor3 = Color3.new(1,1,1)
+                o.Text = "  " .. opt
                 o.Parent = list
+                o.ZIndex = 1000
 
                 o.MouseButton1Click:Connect(function()
                     selected = opt
                     open = false
-                    list.Size = UDim2.new(1,0,0,0)
+
+                    arrow.Text = "▼"
+                    list:TweenSize(UDim2.new(1,0,0,0), "Out", "Quad", 0.2, true)
+
+                    blur.Size = 0
+                    overlay.BackgroundTransparency = 1
 
                     refresh()
 
@@ -257,19 +290,31 @@ function Xeno:Create(titleText, scriptName)
         build()
         refresh()
 
-        btn.MouseButton1Click:Connect(function()
-            open = not open
-            if open then
-                list.Size = UDim2.new(1,0,0,#options * 25)
-            else
-                list.Size = UDim2.new(1,0,0,0)
-            end
-        end)
+        local function openDropdown()
+            open = true
+            arrow.Text = "▲"
 
-        table.insert(self._elements, function()
-            if saveKey and SaveData[saveKey] then
-                selected = SaveData[saveKey]
-                refresh()
+            list:TweenSize(UDim2.new(1,0,0,160), "Out", "Quad", 0.2, true)
+
+            blur.Size = 12
+            overlay.BackgroundTransparency = 0.5
+        end
+
+        local function closeDropdown()
+            open = false
+            arrow.Text = "▼"
+
+            list:TweenSize(UDim2.new(1,0,0,0), "Out", "Quad", 0.2, true)
+
+            blur.Size = 0
+            overlay.BackgroundTransparency = 1
+        end
+
+        btn.MouseButton1Click:Connect(function()
+            if open then
+                closeDropdown()
+            else
+                openDropdown()
             end
         end)
 
@@ -277,7 +322,7 @@ function Xeno:Create(titleText, scriptName)
         return holder
     end
 
-    -- BIND SYSTEM
+    -- BIND
     function UI:Bind(key, callback)
         self._binds[key] = callback
     end
@@ -292,9 +337,7 @@ function Xeno:Create(titleText, scriptName)
 
     function UI:BindToggle(key)
         self:Bind(key, function()
-            if self._frame.Parent then
-                self._frame.Visible = not self._frame.Visible
-            end
+            frame.Visible = not frame.Visible
         end)
     end
 
@@ -302,32 +345,26 @@ function Xeno:Create(titleText, scriptName)
     function UI:ConfigUI()
         local nameBox = self:Textbox("Config Name", "")
 
-        self:Button("Create Config", function()
+        self:Button("Create", function()
             if nameBox.Text ~= "" then
                 createConfig(nameBox.Text)
             end
         end)
 
-        self:Button("Save Config", function()
+        self:Button("Save", function()
             saveConfig()
         end)
 
-        self:Button("Load Config", function()
+        self:Button("Load", function()
             if nameBox.Text ~= "" then
                 loadConfig(nameBox.Text)
-                for _,fn in ipairs(self._elements) do
-                    fn()
-                end
+                for _,fn in ipairs(self._elements) do fn() end
             end
         end)
 
-        self:Button("List Configs", function()
-            print("Configs:", table.concat(getConfigs(), ", "))
+        self:Button("List", function()
+            print(table.concat(getConfigs(), ", "))
         end)
-    end
-
-    function UI:Custom(func)
-        return func(self._frame)
     end
 
     return UI
