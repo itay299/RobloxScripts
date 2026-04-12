@@ -95,6 +95,7 @@ function Xeno:Create(titleText, scriptName)
     UI._binds = {}
     UI._elements = {}
 
+    -- BUTTON
     function UI:Button(text, callback)
         local btn = Instance.new("TextButton")
         btn.Size = UDim2.new(1,-20,0,35)
@@ -112,6 +113,7 @@ function Xeno:Create(titleText, scriptName)
         return btn
     end
 
+    -- TOGGLE
     function UI:Toggle(text, default, callback, saveKey)
         local state = default
 
@@ -158,6 +160,7 @@ function Xeno:Create(titleText, scriptName)
         return btn
     end
 
+    -- TEXTBOX
     function UI:Textbox(placeholder, default, saveKey)
         local box = Instance.new("TextBox")
         box.Size = UDim2.new(0,90,0,30)
@@ -180,16 +183,101 @@ function Xeno:Create(titleText, scriptName)
             end
         end)
 
-        table.insert(self._elements, function()
-            if saveKey and SaveData[saveKey] then
-                box.Text = SaveData[saveKey]
-            end
-        end)
-
         self._y += 40
         return box
     end
 
+    -- DROPDOWN (NEW)
+    function UI:Dropdown(text, options, default, callback, saveKey)
+        options = options or {}
+
+        local selected = default or options[1]
+        if saveKey and SaveData[saveKey] then
+            selected = SaveData[saveKey]
+        end
+
+        local open = false
+
+        local holder = Instance.new("Frame")
+        holder.Size = UDim2.new(1,-20,0,35)
+        holder.Position = UDim2.new(0,10,0,self._y)
+        holder.BackgroundColor3 = Color3.fromRGB(60,60,60)
+        holder.Parent = self._frame
+
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(1,0,1,0)
+        btn.BackgroundTransparency = 1
+        btn.TextColor3 = Color3.new(1,1,1)
+        btn.Parent = holder
+
+        local list = Instance.new("Frame")
+        list.Size = UDim2.new(1,0,0,0)
+        list.Position = UDim2.new(0,0,1,0)
+        list.BackgroundColor3 = Color3.fromRGB(45,45,45)
+        list.ClipsDescendants = true
+        list.Parent = holder
+
+        local function refresh()
+            btn.Text = text..": "..tostring(selected)
+        end
+
+        local function clear()
+            for _,v in pairs(list:GetChildren()) do
+                if v:IsA("TextButton") then v:Destroy() end
+            end
+        end
+
+        local function build()
+            clear()
+            for _,opt in ipairs(options) do
+                local o = Instance.new("TextButton")
+                o.Size = UDim2.new(1,0,0,25)
+                o.Text = opt
+                o.BackgroundColor3 = Color3.fromRGB(55,55,55)
+                o.TextColor3 = Color3.new(1,1,1)
+                o.Parent = list
+
+                o.MouseButton1Click:Connect(function()
+                    selected = opt
+                    open = false
+                    list.Size = UDim2.new(1,0,0,0)
+
+                    refresh()
+
+                    if saveKey then
+                        SaveData[saveKey] = selected
+                        saveConfig()
+                    end
+
+                    pcall(callback, selected)
+                end)
+            end
+        end
+
+        build()
+        refresh()
+
+        btn.MouseButton1Click:Connect(function()
+            open = not open
+            if open then
+                list.Size = UDim2.new(1,0,0,#options * 25)
+            else
+                list.Size = UDim2.new(1,0,0,0)
+            end
+        end)
+
+        table.insert(self._elements, function()
+            if saveKey and SaveData[saveKey] then
+                selected = SaveData[saveKey]
+                refresh()
+            end
+        end)
+
+        self._y += 45
+        return holder
+    end
+
+    -- BIND SYSTEM
     function UI:Bind(key, callback)
         self._binds[key] = callback
     end
@@ -210,6 +298,7 @@ function Xeno:Create(titleText, scriptName)
         end)
     end
 
+    -- CONFIG UI
     function UI:ConfigUI()
         local nameBox = self:Textbox("Config Name", "")
 
@@ -232,7 +321,7 @@ function Xeno:Create(titleText, scriptName)
             end
         end)
 
-        self:Button("List Configs (prints)", function()
+        self:Button("List Configs", function()
             print("Configs:", table.concat(getConfigs(), ", "))
         end)
     end
