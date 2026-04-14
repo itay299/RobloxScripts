@@ -1,11 +1,12 @@
 local Xeno = {}
 
-local player = game.Players.LocalPlayer
 local UIS = game:GetService("UserInputService")
 local HttpService = game:GetService("HttpService")
 
 function Xeno:Create(titleText, scriptName)
     scriptName = scriptName or "DefaultScript"
+
+    local player = game.Players.LocalPlayer
 
     local baseFolder = "ISCRIPTS"
     local scriptFolder = baseFolder.."/"..scriptName
@@ -43,16 +44,6 @@ function Xeno:Create(titleText, scriptName)
         if not isfile(getPath(name)) then
             writefile(getPath(name), "{}")
         end
-    end
-
-    local function getConfigs()
-        local files = listfiles and listfiles(configFolder) or {}
-        local names = {}
-        for _,f in pairs(files) do
-            local n = f:match("([^/]+)%.json$")
-            if n then table.insert(names, n) end
-        end
-        return names
     end
 
     createConfig(currentConfig)
@@ -96,6 +87,7 @@ function Xeno:Create(titleText, scriptName)
     UI._binds = {}
     UI._elements = {}
 
+    -- BUTTON
     function UI:Button(text, callback)
         local btn = Instance.new("TextButton")
         btn.Size = UDim2.new(1,-20,0,35)
@@ -109,10 +101,11 @@ function Xeno:Create(titleText, scriptName)
             pcall(callback)
         end)
 
-        self._y += 45
+        self._y += 40
         return btn
     end
 
+    -- TOGGLE
     function UI:Toggle(text, default, callback, saveKey)
         local state = default
         if saveKey and SaveData[saveKey] ~= nil then
@@ -145,13 +138,14 @@ function Xeno:Create(titleText, scriptName)
         end)
 
         callback(state)
-        self._y += 45
+        self._y += 40
         return btn
     end
 
+    -- TEXTBOX (FIXED WIDTH + CONSISTENT HEIGHT)
     function UI:Textbox(placeholder, default, saveKey)
         local box = Instance.new("TextBox")
-        box.Size = UDim2.new(0,120,0,30)
+        box.Size = UDim2.new(1,-20,0,35)
         box.Position = UDim2.new(0,10,0,self._y)
         box.Text = default or ""
         box.PlaceholderText = placeholder or "Input"
@@ -174,7 +168,7 @@ function Xeno:Create(titleText, scriptName)
         return box
     end
 
-    -- DROPDOWN (NO BLUR VERSION)
+    -- DROPDOWN (FIXED SPACING)
     function UI:Dropdown(text, options, default, callback, saveKey)
         options = options or {}
 
@@ -214,9 +208,6 @@ function Xeno:Create(titleText, scriptName)
         listFrame.Visible = false
         listFrame.Parent = gui
 
-        local layout = Instance.new("UIListLayout")
-        layout.Parent = listFrame
-
         local function refresh()
             btn.Text = "  " .. text .. ": " .. tostring(selected)
         end
@@ -237,7 +228,6 @@ function Xeno:Create(titleText, scriptName)
                 o.MouseButton1Click:Connect(function()
                     selected = opt
                     open = false
-
                     listFrame.Visible = false
                     arrow.Text = "▼"
 
@@ -255,16 +245,11 @@ function Xeno:Create(titleText, scriptName)
         build()
         refresh()
 
-        local function updatePos()
-            local pos = holder.AbsolutePosition
-            listFrame.Position = UDim2.new(0, pos.X, 0, pos.Y + 35)
-        end
-
         btn.MouseButton1Click:Connect(function()
             open = not open
 
             if open then
-                updatePos()
+                listFrame.Position = UDim2.new(0, holder.AbsolutePosition.X, 0, holder.AbsolutePosition.Y + 35)
                 listFrame.Visible = true
                 listFrame.Size = UDim2.new(0,200,0,#options * 28)
                 arrow.Text = "▲"
@@ -274,10 +259,11 @@ function Xeno:Create(titleText, scriptName)
             end
         end)
 
-        self._y += 45
+        self._y += 40
         return holder
     end
 
+    -- BIND SYSTEM
     function UI:Bind(key, callback)
         self._binds[key] = callback
     end
@@ -293,31 +279,6 @@ function Xeno:Create(titleText, scriptName)
     function UI:BindToggle(key)
         self:Bind(key, function()
             frame.Visible = not frame.Visible
-        end)
-    end
-
-    function UI:ConfigUI()
-        local nameBox = self:Textbox("Config Name", "")
-
-        self:Button("Create", function()
-            if nameBox.Text ~= "" then
-                createConfig(nameBox.Text)
-            end
-        end)
-
-        self:Button("Save", function()
-            saveConfig()
-        end)
-
-        self:Button("Load", function()
-            if nameBox.Text ~= "" then
-                loadConfig(nameBox.Text)
-                for _,fn in ipairs(self._elements) do fn() end
-            end
-        end)
-
-        self:Button("List", function()
-            print(table.concat(getConfigs(), ", "))
         end)
     end
 
