@@ -168,101 +168,108 @@ function Xeno:Create(titleText, scriptName)
         return box
     end
 
-    -- DROPDOWN (FIXED SPACING)
-    function UI:Dropdown(text, options, default, callback, saveKey)
-        options = options or {}
+-- DROPDOWN (FIXED FULL REPLACEMENT)
+function UI:Dropdown(text, options, default, callback, saveKey)
+    options = options or {}
 
-        local selected = default or options[1]
-        if saveKey and SaveData[saveKey] then
-            selected = SaveData[saveKey]
-        end
-
-        local open = false
-
-        local holder = Instance.new("Frame")
-        holder.Size = UDim2.new(1,-20,0,35)
-        holder.Position = UDim2.new(0,10,0,self._y)
-        holder.BackgroundColor3 = Color3.fromRGB(45,45,45)
-        holder.BorderSizePixel = 0
-        holder.Parent = self._frame
-
-        local btn = Instance.new("TextButton")
-        btn.Size = UDim2.new(1,0,1,0)
-        btn.BackgroundTransparency = 1
-        btn.TextColor3 = Color3.new(1,1,1)
-        btn.TextXAlignment = Enum.TextXAlignment.Left
-        btn.Parent = holder
-
-        local arrow = Instance.new("TextLabel")
-        arrow.Size = UDim2.new(0,20,1,0)
-        arrow.Position = UDim2.new(1,-20,0,0)
-        arrow.BackgroundTransparency = 1
-        arrow.Text = "▼"
-        arrow.TextColor3 = Color3.new(1,1,1)
-        arrow.Parent = holder
-
-        local listFrame = Instance.new("Frame")
-        listFrame.Size = UDim2.new(0,200,0,0)
-        listFrame.BackgroundColor3 = Color3.fromRGB(30,30,30)
-        listFrame.BorderSizePixel = 0
-        listFrame.Visible = false
-        listFrame.Parent = gui
-
-        local function refresh()
-            btn.Text = "  " .. text .. ": " .. tostring(selected)
-        end
-
-        local function build()
-            for _,v in pairs(listFrame:GetChildren()) do
-                if v:IsA("TextButton") then v:Destroy() end
-            end
-
-            for _,opt in ipairs(options) do
-                local o = Instance.new("TextButton")
-                o.Size = UDim2.new(1,0,0,28)
-                o.Text = "  " .. opt
-                o.BackgroundColor3 = Color3.fromRGB(55,55,55)
-                o.TextColor3 = Color3.new(1,1,1)
-                o.Parent = listFrame
-
-                o.MouseButton1Click:Connect(function()
-                    selected = opt
-                    open = false
-                    listFrame.Visible = false
-                    arrow.Text = "▼"
-
-                    if saveKey then
-                        SaveData[saveKey] = selected
-                        saveConfig()
-                    end
-
-                    refresh()
-                    pcall(callback, selected)
-                end)
-            end
-        end
-
-        build()
-        refresh()
-
-        btn.MouseButton1Click:Connect(function()
-            open = not open
-
-            if open then
-                listFrame.Position = UDim2.new(0, holder.AbsolutePosition.X, 0, holder.AbsolutePosition.Y + 35)
-                listFrame.Visible = true
-                listFrame.Size = UDim2.new(0,200,0,#options * 28)
-                arrow.Text = "▲"
-            else
-                listFrame.Visible = false
-                arrow.Text = "▼"
-            end
-        end)
-
-        self._y += 40
-        return holder
+    local selected = default or options[1]
+    if saveKey and SaveData[saveKey] then
+        selected = SaveData[saveKey]
     end
 
+    local open = false
+
+    local holder = Instance.new("Frame")
+    holder.Size = UDim2.new(1,-20,0,35)
+    holder.Position = UDim2.new(0,10,0,self._y)
+    holder.BackgroundColor3 = Color3.fromRGB(45,45,45)
+    holder.BorderSizePixel = 0
+    holder.Parent = self._frame
+
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1,0,1,0)
+    btn.BackgroundTransparency = 1
+    btn.TextColor3 = Color3.new(1,1,1)
+    btn.TextXAlignment = Enum.TextXAlignment.Left
+    btn.Parent = holder
+
+    local arrow = Instance.new("TextLabel")
+    arrow.Size = UDim2.new(0,20,1,0)
+    arrow.Position = UDim2.new(1,-20,0,0)
+    arrow.BackgroundTransparency = 1
+    arrow.Text = "▼"
+    arrow.TextColor3 = Color3.new(1,1,1)
+    arrow.Parent = holder
+
+    local listFrame = Instance.new("Frame")
+    listFrame.Size = UDim2.new(1,0,0,0)
+    listFrame.BackgroundColor3 = Color3.fromRGB(30,30,30)
+    listFrame.BorderSizePixel = 0
+    listFrame.Visible = false
+    listFrame.Parent = self._frame
+
+    local layout = Instance.new("UIListLayout")
+    layout.Parent = listFrame
+
+    local function refresh()
+        btn.Text = "  " .. text .. ": " .. tostring(selected)
+    end
+
+    local function build()
+        for _,v in ipairs(listFrame:GetChildren()) do
+            if v:IsA("TextButton") then
+                v:Destroy()
+            end
+        end
+
+        for _,opt in ipairs(options) do
+            local o = Instance.new("TextButton")
+            o.Size = UDim2.new(1,0,0,28)
+            o.Text = "  " .. opt
+            o.BackgroundColor3 = Color3.fromRGB(55,55,55)
+            o.TextColor3 = Color3.new(1,1,1)
+            o.Parent = listFrame
+
+            o.MouseButton1Click:Connect(function()
+                selected = opt
+                open = false
+                listFrame.Visible = false
+                arrow.Text = "▼"
+
+                if saveKey then
+                    SaveData[saveKey] = selected
+                    saveConfig()
+                end
+
+                refresh()
+                pcall(callback, selected)
+            end)
+        end
+
+        task.wait()
+        listFrame.Size = UDim2.new(1,0,0,layout.AbsoluteContentSize.Y)
+    end
+
+    build()
+    refresh()
+
+    btn.MouseButton1Click:Connect(function()
+        open = not open
+
+        if open then
+            listFrame.Visible = true
+            arrow.Text = "▲"
+            task.wait()
+            listFrame.Size = UDim2.new(1,0,0,layout.AbsoluteContentSize.Y)
+        else
+            listFrame.Visible = false
+            arrow.Text = "▼"
+        end
+    end)
+
+    self._y += 40
+    return holder
+end
     -- BIND SYSTEM
     function UI:Bind(key, callback)
         self._binds[key] = callback
