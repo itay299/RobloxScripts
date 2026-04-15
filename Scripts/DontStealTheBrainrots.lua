@@ -3,7 +3,7 @@ local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/
 local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"))()
 local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/InterfaceManager.lua"))()
 local Window = Fluent:CreateWindow({
-    Title = "Don’t Steal the Brainrots Script",
+    Title = "Don't Steal the Brainrots Script",
     SubTitle = "by phemonaz",
     TabWidth = 160,
     Size = UDim2.fromOffset(580, 460),
@@ -15,6 +15,8 @@ local Tabs = {
     Farm       = Window:AddTab({ Title = "Farm",       Icon = "bot"     }),
     Upgrades   = Window:AddTab({ Title = "Upgrades",   Icon = "bot"     }),
     Automation = Window:AddTab({ Title = "Automation", Icon = "clock"   }),
+    Quests     = Window:AddTab({ Title = "Quests",     Icon = "list"   }),
+    Mutation   = Window:AddTab({ Title = "Mutation Machine", Icon = "settings"}),
     Settings   = Window:AddTab({ Title = "Settings",   Icon = "settings"})
 }
 local Options = Fluent.Options
@@ -25,6 +27,11 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local player    = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local rootPart  = character:WaitForChild("HumanoidRootPart")
+local questEnabled = false
+local questInterval = 10
+local questTask = nil
+
+local lastBrainrotPrefix = nil
 player.CharacterAdded:Connect(function(c)
     character = c
     rootPart  = c:WaitForChild("HumanoidRootPart")
@@ -118,6 +125,11 @@ local function getMyPlotPos()
     end
     return nil
 end
+local function getEquippedTool()
+    local char = player.Character
+    if not char then return nil end
+    return char:FindFirstChildOfClass("Tool")
+end
 local collectEnabled, collectInterval, collectTask = false, 5, nil
 local function startAutoCollect()
     if collectTask then task.cancel(collectTask) end
@@ -142,10 +154,18 @@ end
 local rebirthEnabled, rebirthCheckInterval, rebirthTask = false, 10, nil
 local function startAutoRebirth()
     if rebirthTask then task.cancel(rebirthTask) end
+
     rebirthTask = task.spawn(function()
         while rebirthEnabled do
-            local lvl, req = getLevelInfo()
-            if lvl >= req then fireRemote(Remotes.Rebirth); Fluent:Notify({ Title = "Auto Rebirth", Content = "Rebirthed!", Duration = 2 }); task.wait(5) end
+            local args = {
+                "REBIRTH"
+            }
+
+            game:GetService("ReplicatedStorage")
+                :WaitForChild("Remotes")
+                :WaitForChild("Rebirth")
+                :FireServer(unpack(args))
+
             task.wait(rebirthCheckInterval)
         end
     end)
@@ -185,6 +205,20 @@ local function startAutoPlotUpgrade()
     plotUpgradeTask = task.spawn(function()
         while plotUpgradeEnabled do
             fireRemote(Remotes.PlotUpgrade); task.wait(300)
+        end
+    end)
+end
+local function startAutoQuest()
+    if questTask then task.cancel(questTask) end
+
+    questTask = task.spawn(function()
+        while questEnabled do
+            game:GetService("ReplicatedStorage")
+                :WaitForChild("Remotes")
+                :WaitForChild("Quest")
+                :FireServer("SUBMIT_NPC")
+
+            task.wait(questInterval)
         end
     end)
 end
@@ -299,28 +333,41 @@ Tabs.Automation:AddSlider("CollectInterval", {
     Callback = function(val) collectInterval = val; if collectEnabled then startAutoCollect() end end
 })
 Tabs.Farm:AddSection("Auto Rebirth")
+
+Tabs.Farm:AddButton({
+    Title = "Rebirth",
+    Callback = function()
+        local args = {
+            "REBIRTH"
+        }
+        game:GetService("ReplicatedStorage")
+            :WaitForChild("Remotes")
+            :WaitForChild("Rebirth")
+            :FireServer(unpack(args))
+    end
+})
+
 Tabs.Farm:AddToggle("AutoRebirth", { Title = "Auto Rebirth", Default = false }):OnChanged(function()
     rebirthEnabled = Options.AutoRebirth.Value
-    if rebirthEnabled then startAutoRebirth() elseif rebirthTask then task.cancel(rebirthTask); rebirthTask = nil end
-end)
-Tabs.Farm:AddSlider("RebirthInterval", {
-    Title = "Rebirth Interval", Default = 10, Min = 0.1, Max = 30, Rounding = 1,
-    Callback = function(val) rebirthCheckInterval = val; if rebirthEnabled then startAutoRebirth() end end
-})
-Tabs.Farm:AddSection("Quest Farm")
-Tabs.Farm:AddToggle("QuestFarmToggle", { Title = "Auto Quest Farm", Default = false }):OnChanged(function()
-    if Options.QuestFarmToggle.Value then
-        questLoopToken = questLoopToken + 1
-        local token = questLoopToken
-        task.spawn(function()
-            local ok, err = pcall(runQuestLoop, token)
-            if not ok then warn("QuestFarm error:", err) end
-        end)
-    else
-        questLoopToken = questLoopToken + 1
+    if rebirthEnabled then
+        startAutoRebirth()
+    elseif rebirthTask then
+        task.cancel(rebirthTask)
+        rebirthTask = nil
     end
 end)
-Options.QuestFarmToggle:SetValue(false)
+
+Tabs.Farm:AddSlider("RebirthInterval", {
+    Title = "Rebirth Interval",
+    Default = 10,
+    Min = 0.1,
+    Max = 30,
+    Rounding = 1,
+    Callback = function(val)
+        rebirthCheckInterval = val
+        if rebirthEnabled then startAutoRebirth() end
+    end
+})
 Tabs.Farm:AddSection("Auto Farm")
 Tabs.Farm:AddDropdown("FarmFilterMode", {
     Title = "Filter Mode",
@@ -368,9 +415,44 @@ Tabs.Upgrades:AddSlider("UpgradeInterval", {
     Title = "Upgrade Interval", Default = 30, Min = 0.1, Max = 120, Rounding = 1,
     Callback = function(val) upgradeInterval = val; if upgradeEnabled then startAutoUpgrade() end end
 })
-Tabs.Upgrades:AddInput("TargetLevel", {
-    Title = "Max Upgrade Level", Default = "100", Placeholder = "Enter level...", Numeric = true, Finished = true,
-    Callback = function(val) local n = tonumber(val); if n and n > 0 then targetLevel = n end end
+Tabs.Upgrades:AddSection("Alert")
+
+local alertMessage = "Teleported successfully!"
+local alertType = "SUCCESS"
+
+Tabs.Upgrades:AddInput("AlertText", {
+    Title = "Alert Message",
+    Default = alertMessage,
+    Placeholder = "Enter message...",
+    Numeric = false,
+    Finished = false,
+    Callback = function(val)
+        alertMessage = val
+    end
+})
+
+Tabs.Upgrades:AddDropdown("AlertType", {
+    Title = "Alert Type",
+    Values = {"SUCCESS", "ERROR"},
+    Default = "SUCCESS",
+    Multi = false
+}):OnChanged(function(val)
+    alertType = val
+end)
+
+Tabs.Upgrades:AddButton({
+    Title = "Send Alert",
+    Callback = function()
+        local args = {
+            "Preset",
+            alertType,
+            alertMessage
+        }
+
+        game:GetService("ReplicatedStorage")
+            :WaitForChild("AlertRequest")
+            :FireServer(unpack(args))
+    end
 })
 Tabs.Automation:AddSection("Spins & Rewards")
 Tabs.Automation:AddToggle("AutoSpin", { Title = "Auto Spin", Default = false }):OnChanged(function()
@@ -386,6 +468,144 @@ Tabs.Automation:AddToggle("AutoPlotUpgrade", { Title = "Auto Upgrade Plot", Defa
     plotUpgradeEnabled = Options.AutoPlotUpgrade.Value
     if plotUpgradeEnabled then startAutoPlotUpgrade() elseif plotUpgradeTask then task.cancel(plotUpgradeTask); plotUpgradeTask = nil end
 end)
+Tabs.Quests:AddSection("Quests")
+
+Tabs.Quests:AddButton({
+    Title = "Give Quest",
+    Callback = function()
+        game:GetService("ReplicatedStorage")
+            :WaitForChild("Remotes")
+            :WaitForChild("Quest")
+            :FireServer("SUBMIT_NPC")
+    end
+})
+local questEnabled = false
+local questInterval = 10
+local questTask = nil
+
+local function startAutoQuest()
+    if questTask then task.cancel(questTask) end
+
+    questTask = task.spawn(function()
+        while questEnabled do
+            game:GetService("ReplicatedStorage")
+                :WaitForChild("Remotes")
+                :WaitForChild("Quest")
+                :FireServer("SUBMIT_NPC")
+
+            task.wait(questInterval)
+        end
+    end)
+end
+
+Tabs.Quests:AddToggle("AutoQuest", {
+    Title = "Auto Give Quest",
+    Default = false
+}):OnChanged(function()
+    questEnabled = Options.AutoQuest.Value
+
+    if questEnabled then
+        startAutoQuest()
+    elseif questTask then
+        task.cancel(questTask)
+        questTask = nil
+    end
+end)
+
+Tabs.Quests:AddSlider("QuestInterval", {
+    Title = "Quest Interval",
+    Default = 10,
+    Min = 1,
+    Max = 60,
+    Rounding = 1,
+    Callback = function(val)
+        questInterval = val
+        if questEnabled then startAutoQuest() end
+    end
+})
+Tabs.Quests:AddSection("Quest Farm")
+
+Tabs.Quests:AddToggle("QuestFarmToggle", {
+    Title = "Auto Quest Farm",
+    Default = false
+}):OnChanged(function()
+    if Options.QuestFarmToggle.Value then
+        questLoopToken = questLoopToken + 1
+        local token = questLoopToken
+
+        task.spawn(function()
+            local ok, err = pcall(runQuestLoop, token)
+            if not ok then warn("QuestFarm error:", err) end
+        end)
+    else
+        questLoopToken = questLoopToken + 1
+    end
+end)
+
+Options.QuestFarmToggle:SetValue(false)
+Tabs.Mutation:AddButton({
+    Title = "Place Brainrot",
+    Callback = function()
+        local tool = getEquippedTool()
+
+        if tool then
+            lastBrainrotPrefix = tool.Name:match("^(.-)%(") or tool.Name
+        end
+
+        game:GetService("ReplicatedStorage")
+            :WaitForChild("Remotes")
+            :WaitForChild("Mutation")
+            :FireServer("ADD_NPC")
+    end
+})
+
+Tabs.Mutation:AddButton({
+    Title = "Put Last Brainrot",
+    Callback = function()
+        if not lastBrainrotPrefix then return end
+
+        local backpack = player:WaitForChild("Backpack")
+        local char = player.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+
+        local candidates = {}
+
+        for _, v in ipairs(backpack:GetChildren()) do
+            if v:IsA("Tool") and v.Name:sub(1, #lastBrainrotPrefix) == lastBrainrotPrefix then
+                table.insert(candidates, v)
+            end
+        end
+
+        if char then
+            for _, v in ipairs(char:GetChildren()) do
+                if v:IsA("Tool") and v.Name:sub(1, #lastBrainrotPrefix) == lastBrainrotPrefix then
+                    table.insert(candidates, v)
+                end
+            end
+        end
+
+        if #candidates == 0 then return end
+
+        local chosen = candidates[math.random(1, #candidates)]
+
+        if hum and chosen then
+            task.spawn(function()
+                task.wait(0.15)
+                hum:EquipTool(chosen)
+
+                task.wait(0.5)
+
+                -- SAME ACTION AS "Place Brainrot"
+                local args = { "ADD_NPC" }
+
+                game:GetService("ReplicatedStorage")
+                    :WaitForChild("Remotes")
+                    :WaitForChild("Mutation")
+                    :FireServer(unpack(args))
+            end)
+        end
+    end
+})
 ------------------------------------
 SaveManager:SetLibrary(Fluent)
 InterfaceManager:SetLibrary(Fluent)
