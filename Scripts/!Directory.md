@@ -17,6 +17,7 @@
 
 ## Emojis For Features
 | Features | Emojis |
+|--------|----------|
 | Auto Rebirth | 🔁 |
 | Auto Go to Best Area | 🚀 |
 | Go to Spawn | 🏠 |
