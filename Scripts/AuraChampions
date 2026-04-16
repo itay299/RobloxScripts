@@ -1,0 +1,119 @@
+local Xeno = loadstring(game:HttpGet("https://raw.githubusercontent.com/itay299/RobloxScripts/refs/heads/main/Scripts/!MyLibrary"))()
+
+local UI = Xeno:Create(
+    "Aura Champions",
+    game:GetService("MarketplaceService"):GetProductInfo(game.PlaceId).Name
+)
+
+local player = game.Players.LocalPlayer
+
+-- locations (named + fixed)
+local Locations = {
+    {name = "Toxic Bath", aura = "100M",  pos = Vector3.new(-507.38, 24.39, -188.94)},
+    {name = "Fire Execution", aura = "1qd",   pos = Vector3.new(-429.46, 26.46, -188.64)},
+    {name = "Forgotten Sword", aura = "100Qn", pos = Vector3.new(-650.02, 18.07, -25.03)},
+    {name = "Ancient Statue", aura = "100Sp", pos = Vector3.new(-700.83, 18.68, -221.61)},
+    {name = "Petrified Temple", aura = "100N",  pos = Vector3.new(-213.45, 18.84, -228.49)},
+    {name = "??? (Ud Zone)", aura = "100Ud", pos = Vector3.new(0, 0, 0)} -- set real pos if needed
+}
+
+local running = false
+local lastZone = nil
+local lastPos = nil
+
+-- parser
+local function parseNumber(str)
+    if typeof(str) == "number" then return str end
+    str = tostring(str)
+
+    local num = tonumber(str:match("[%d%.]+"))
+    local suffix = str:match("[A-Za-z]+")
+
+    if not num then return nil end
+
+    local mult = {
+        K=1e3, M=1e6, B=1e9, T=1e12,
+        qd=1e15, Qn=1e18, sx=1e21,
+        Sp=1e24, O=1e27, N=1e30,
+        de=1e33, Ud=1e36
+    }
+
+    return num * (mult[suffix] or 1)
+end
+
+local function getBestLocation(value)
+    local best = nil
+    for _,loc in ipairs(Locations) do
+        local needed = parseNumber(loc.aura)
+        if needed and value >= needed then
+            if not best or needed > parseNumber(best.aura) then
+                best = loc
+            end
+        end
+    end
+    return best
+end
+
+local function teleportTo(pos)
+    local char = player.Character
+    if char and char:FindFirstChild("HumanoidRootPart") then
+        char.HumanoidRootPart.CFrame = CFrame.new(pos)
+    end
+end
+
+-- AUTO TP
+UI:Toggle("Auto TP by Aura", false, function(v)
+    running = v
+    lastZone = nil
+    lastPos = nil
+
+    while running do
+        task.wait(0.5)
+
+        local leaderstats = player:FindFirstChild("leaderstats")
+        if not leaderstats then continue end
+
+        local aura = leaderstats:FindFirstChild("🔥Aura")
+        if not aura then continue end
+
+        local value = parseNumber(aura.Value)
+        if not value then continue end
+
+        local best = getBestLocation(value)
+
+        if best and best.name ~= lastZone then
+            teleportTo(best.pos)
+            lastZone = best.name
+            lastPos = best.pos
+
+            task.wait(1)
+
+            local char = player.Character
+            if char and char:FindFirstChild("HumanoidRootPart") then
+                local dist = (char.HumanoidRootPart.Position - lastPos).Magnitude
+                if dist > 5 then
+                    local newBest = getBestLocation(value)
+                    if newBest and newBest.name ~= lastZone then
+                        lastZone = nil
+                    else
+                        teleportTo(lastPos)
+                    end
+                end
+            end
+        end
+
+        if value < parseNumber(Locations[1].aura) then
+            lastZone = nil
+        end
+    end
+end)
+
+-- REBIRTH BUTTON
+UI:Button("Rebirth", function()
+    local pos1 = Vector3.new(-463.36, 25.64, -269.00)
+    local pos2 = Vector3.new(-483.11, 25.39, -268.04)
+
+    teleportTo(pos1)
+    task.wait(0.3)
+    teleportTo(pos2)
+end)
