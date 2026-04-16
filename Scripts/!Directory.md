@@ -10,3 +10,17 @@
 | 🥭 [Mango Clicker](MangoClicker) | 🛒 Auto Buy & 🔁 Auto Rebirth |
 | 🚨 [Steal from Sammy](StealFromSammy.lua) | 👑 Auto OG & 🏠 Go to Spawn & 🎯 Go to End |
 | 🌪️ [Escape UnstableSMP or Brainrots](Escape%20UnstableSMP%20or%20Brainrots) | 🏃 Teleport system, auto secret farming, VIP remover, auto rebirth, |
+| 🔥 [Aura Champions](AuraChampions) | 🚀 Auto Go to Best Area & 🔁 Auto Rebirth |
+
+
+
+
+## Emojis For Features
+| Features | Emojis |
+| Auto Rebirth | 🔁 |
+| Auto Go to Best Area | 🚀 |
+| Go to Spawn | 🏠 |
+| Go to End | 🎯 |
+| Auto ANYTHING | 💰 |
+| Auto Buy | 🛒 |
+| Auto Spin | 🎰 |
