@@ -1,0 +1,57 @@
+--[[
+	WARNING: Heads up! This script has not been verified by ScriptBlox. Use at your own risk!
+]]
+local Xeno = loadstring(game:HttpGet("https://raw.githubusercontent.com/itay299/RobloxScripts/main/Scripts/!MyLibrary"))()
+local UI = Xeno:Create("Ban or Get Banned 🔨", game:GetService("MarketplaceService"):GetProductInfo(game.PlaceId).Name)
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local player = game.Players.LocalPlayer
+
+-- vars
+local autoBuy = false
+local autoFarm = false
+
+local bans = {
+	"Ban5Min",
+	"Ban15Min",
+	"Ban30Min",
+	"Ban1Hour",
+	"Ban1Day",
+	"Ban30Days",
+	"Ban365Days"
+}
+
+-- toggles
+UI:Toggle("Auto Buy Bans", false, function(v)
+	autoBuy = v
+end)
+
+UI:Toggle("Auto Farm Money", false, function(v)
+	autoFarm = v
+end)
+
+-- auto buy loop
+task.spawn(function()
+	while true do
+		if autoBuy then
+			for _, ban in ipairs(bans) do
+				ReplicatedStorage:WaitForChild("ShopBuyBan"):FireServer(ban)
+				task.wait(0.3) -- small delay so it doesn't break
+			end
+		end
+		task.wait(0.2)
+	end
+end)
+
+-- auto farm loop
+task.spawn(function()
+	while true do
+		if autoFarm then
+			local char = player.Character
+			if char and char:FindFirstChild("HumanoidRootPart") then
+				char.HumanoidRootPart.CFrame = CFrame.new(-1.5, 2066, -101)
+			end
+		end
+		task.wait(1)
+	end
+end)
