@@ -11,7 +11,7 @@
 | 🚨 [Steal from Sammy](StealFromSammy.lua) | 👑 Auto OG & 🏠 Go to Spawn & 🎯 Go to End |
 | 🌪️ [Escape UnstableSMP or Brainrots](Escape%20UnstableSMP%20or%20Brainrots) | 🏃 Teleport system, auto secret farming, VIP remover, auto rebirth, |
 | 🔥 [Aura Champions](AuraChampions) | 🚀 Auto Go to Best Area & 🔁 Auto Rebirth |
-
+| ♓ [Mutate a Brainrot](MutateABrainrot) | ♾️ Get Infinity Lives 💀 Auto Delete Death ♓ Mutation Teleport & Delete Worse Mutations |
 
 
 
