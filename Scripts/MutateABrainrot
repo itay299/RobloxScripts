@@ -1,0 +1,135 @@
+local Xeno = loadstring(game:HttpGet("https://raw.githubusercontent.com/itay299/RobloxScripts/main/Scripts/!MyLibrary"))()
+local UI = Xeno:Create("Mutate the Brainrot", "MutateBrainrot")
+
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+
+local enabledTP = false
+local enabledDeleteDeaths = false
+local enabledDeleteWorse = false
+
+local MutationMulti = {
+	Electric = 3,
+	Flaming = 4,
+	Frozen = 4.5,
+	Golden = 5,
+	Diamond = 7.5,
+	Wormhole = 8,
+	Ascended = 12,
+	Glitched = 16,
+	Blossom = 20,
+	Hacked = 50,
+	Corrupted = 150,
+	Ancient = 250,
+	Jackpot = 777,
+	Admin = 1000
+}
+
+local currentBestMulti = -math.huge
+
+-- Auto Delete Deaths
+UI:Toggle("Auto Delete Deaths", false, function(v)
+	enabledDeleteDeaths = v
+end)
+
+task.spawn(function()
+	while true do
+		if enabledDeleteDeaths then
+			local folder = workspace:FindFirstChild("SpawnedMutations")
+			if folder then
+				local death = folder:FindFirstChild("Death")
+				if death then
+					for _, obj in ipairs(death:GetChildren()) do
+						obj:Destroy()
+					end
+				end
+			end
+		end
+		task.wait(0.5)
+	end
+end)
+
+-- Delete Worse Mutations
+UI:Toggle("Delete Worse Mutations", false, function(v)
+	enabledDeleteWorse = v
+end)
+
+task.spawn(function()
+	while true do
+		if enabledDeleteWorse then
+			local folder = workspace:FindFirstChild("SpawnedMutations")
+			if folder then
+				for name, multi in pairs(MutationMulti) do
+					if multi < currentBestMulti then
+						local obj = folder:FindFirstChild(name)
+						if obj then
+							obj:Destroy()
+						end
+					end
+				end
+			end
+		end
+		task.wait(0.4)
+	end
+end)
+
+-- Mutations Teleport
+UI:Toggle("Mutations Teleport", false, function(v)
+	enabledTP = v
+
+	if not v then
+		currentBestMulti = -math.huge
+	end
+end)
+
+local function getRoot()
+	local char = player.Character or player.CharacterAdded:Wait()
+	return char:WaitForChild("HumanoidRootPart")
+end
+
+task.spawn(function()
+	while true do
+		if not enabledTP then
+			task.wait(0.5)
+			continue
+		end
+
+		local root = getRoot()
+		local original = root.CFrame
+
+		local folder = workspace:FindFirstChild("SpawnedMutations")
+		if folder then
+			local bestPart = nil
+			local bestMulti = -math.huge
+
+			for name, multi in pairs(MutationMulti) do
+				local obj = folder:FindFirstChild(name)
+				if obj and obj:IsA("BasePart") then
+					if multi > currentBestMulti and multi > bestMulti then
+						bestPart = obj
+						bestMulti = multi
+					end
+				end
+			end
+
+			if bestPart then
+				currentBestMulti = bestMulti
+
+				root.CFrame = bestPart.CFrame + Vector3.new(0, 3, 0)
+				task.wait(0.15)
+				root.CFrame = original
+			end
+		end
+
+		task.wait(0.5)
+	end
+end)
+
+-- GET INF LIVES BUTTON
+UI:Button("Get Inf Lives", function()
+	local stats = player:FindFirstChild("LivesLeft")
+
+	if stats and stats:IsA("IntValue") then
+		stats.Value = 1e18
+	end
+end)
