@@ -2,7 +2,7 @@
 local Xeno = loadstring(game:HttpGet("https://raw.githubusercontent.com/itay299/RobloxScripts/main/Scripts/!MyLibrary"))()
 
 local gameName = game:GetService("MarketplaceService"):GetProductInfo(game.PlaceId).Name
-local UI = Xeno:Create("917359 Clicks For Owner!", gameName)
+local UI = Xeno:Create("917359 Clicks Script", gameName)
 
 -- Services
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -12,11 +12,16 @@ local Remotes = ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Remotes")
 local ClickRemote = Remotes:WaitForChild("Click")
 local UpgradeRemote = Remotes:WaitForChild("BuyUpgrade")
 local RebirthRemote = Remotes:WaitForChild("RequestRebirth")
+local EggRemote = Remotes:WaitForChild("EggClick")
 
 -- Toggles
 local autoClick = false
 local autoUpgrade = false
 local autoRebirth = false
+local autoEgg = false
+
+-- Selected Egg
+local selectedEgg = "BasicEgg"
 
 -- AUTO CLICK
 UI:Toggle("Auto Click", false, function(v)
@@ -63,6 +68,33 @@ task.spawn(function()
         if autoRebirth then
             pcall(function()
                 RebirthRemote:FireServer()
+            end)
+        end
+    end
+end)
+
+-- EGG DROPDOWN
+UI:Dropdown("Select Egg", {
+    "BasicEgg",
+    "PinkEgg",
+    "SpikeyEgg",
+    "GoldenEgg",
+    "VoidEgg"
+}, "BasicEgg", function(v)
+    selectedEgg = v
+end, "eggselect")
+
+-- AUTO EGG
+UI:Toggle("Auto Open Egg", false, function(v)
+    autoEgg = v
+end, "autoegg")
+
+task.spawn(function()
+    while true do
+        task.wait(0.1)
+        if autoEgg then
+            pcall(function()
+                EggRemote:FireServer(selectedEgg)
             end)
         end
     end
