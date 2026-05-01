@@ -1,0 +1,69 @@
+-- Xeno UI
+local Xeno = loadstring(game:HttpGet("https://raw.githubusercontent.com/itay299/RobloxScripts/main/Scripts/!MyLibrary"))()
+
+local gameName = game:GetService("MarketplaceService"):GetProductInfo(game.PlaceId).Name
+local UI = Xeno:Create("917359 Clicks For Owner!", gameName)
+
+-- Services
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+-- Remotes
+local Remotes = ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Remotes")
+local ClickRemote = Remotes:WaitForChild("Click")
+local UpgradeRemote = Remotes:WaitForChild("BuyUpgrade")
+local RebirthRemote = Remotes:WaitForChild("RequestRebirth")
+
+-- Toggles
+local autoClick = false
+local autoUpgrade = false
+local autoRebirth = false
+
+-- AUTO CLICK
+UI:Toggle("Auto Click", false, function(v)
+    autoClick = v
+end, "autoclick")
+
+task.spawn(function()
+    while true do
+        task.wait(0.05)
+        if autoClick then
+            pcall(function()
+                ClickRemote:FireServer()
+            end)
+        end
+    end
+end)
+
+-- AUTO UPGRADES
+UI:Toggle("Auto Upgrades", false, function(v)
+    autoUpgrade = v
+end, "autoupgrade")
+
+task.spawn(function()
+    while true do
+        task.wait(0.5)
+        if autoUpgrade then
+            pcall(function()
+                UpgradeRemote:FireServer("AutoClickPower")
+                UpgradeRemote:FireServer("AutoClickSpeed")
+                UpgradeRemote:FireServer("ClickMultiplier")
+            end)
+        end
+    end
+end)
+
+-- AUTO REBIRTH
+UI:Toggle("Auto Rebirth", false, function(v)
+    autoRebirth = v
+end, "autorebirth")
+
+task.spawn(function()
+    while true do
+        task.wait(3)
+        if autoRebirth then
+            pcall(function()
+                RebirthRemote:FireServer()
+            end)
+        end
+    end
+end)
