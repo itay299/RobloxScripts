@@ -1,0 +1,132 @@
+-- Xeno UI
+local Xeno = loadstring(game:HttpGet("https://raw.githubusercontent.com/itay299/RobloxScripts/main/Scripts/!MyLibrary"))()
+
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+
+local UI = Xeno:Create("Blocks n' Props", "Blocks n' Props")
+
+-- settings
+local targetName = ""
+local autoFire = false
+
+-- blocked region (reroll if inside)
+local blockedMin = Vector3.new(87.53, 250, -67.14)
+local blockedMax = Vector3.new(185.48, 252.70, 30.13)
+
+-- allowed region (ONLY valid targets)
+local allowedMin = Vector3.new(-101.13, 50, -49.35)
+local allowedMax = Vector3.new(-38.78, 263.41, 11.63)
+
+local function inBlocked(pos)
+	return pos.X >= blockedMin.X and pos.X <= blockedMax.X
+		and pos.Y >= blockedMin.Y and pos.Y <= blockedMax.Y
+		and pos.Z >= blockedMin.Z and pos.Z <= blockedMax.Z
+end
+
+local function inAllowed(pos)
+	return pos.X >= allowedMin.X and pos.X <= allowedMax.X
+		and pos.Y >= allowedMin.Y and pos.Y <= allowedMax.Y
+		and pos.Z >= allowedMin.Z and pos.Z <= allowedMax.Z
+end
+
+local function findPlayer(input)
+	input = string.lower(input)
+	for _, plr in ipairs(Players:GetPlayers()) do
+		if plr ~= LocalPlayer and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+			if string.find(string.lower(plr.Name), input, 1, true)
+			or string.find(string.lower(plr.DisplayName), input, 1, true) then
+				return plr
+			end
+		end
+	end
+end
+
+local function getRandomPlayer()
+	local list = {}
+	for _, plr in ipairs(Players:GetPlayers()) do
+		if plr ~= LocalPlayer and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+			table.insert(list, plr)
+		end
+	end
+	if #list == 0 then return end
+	return list[math.random(1, #list)]
+end
+
+local function getTarget()
+	-- specific user (must be in allowed region)
+	if targetName ~= "" then
+		local plr = findPlayer(targetName)
+		if plr and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+			local pos = plr.Character.HumanoidRootPart.Position
+			if inAllowed(pos) then
+				return plr
+			end
+		end
+		return nil
+	end
+
+	-- random selection with rules
+	for i = 1, 30 do
+		local plr = getRandomPlayer()
+		if plr and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+			local pos = plr.Character.HumanoidRootPart.Position
+
+			if inAllowed(pos) and not inBlocked(pos) then
+				return plr
+			end
+		end
+	end
+end
+
+local function fire()
+	local target = getTarget()
+	if not target then return end
+
+	local pos = target.Character.HumanoidRootPart.Position
+
+	LocalPlayer.Character:WaitForChild("Place Object")
+		:WaitForChild("Remote")
+		:FireServer(pos)
+end
+
+local function removeAllBlocks()
+	local tower = workspace:FindFirstChild("Map")
+		and workspace.Map:FindFirstChild("Classic")
+		and workspace.Map.Classic:FindFirstChild("Tower")
+
+	if not tower then return end
+
+	for _, v in ipairs(tower:GetDescendants()) do
+		if v.Name == "JengaPart" then
+			v:Destroy()
+		end
+	end
+end
+
+-- UI
+UI:Textbox("USERNAME", "", function(v)
+	targetName = v
+end, "username")
+
+UI:Button("Fire Once", function()
+	fire()
+end)
+
+UI:Toggle("Auto Fire", false, function(v)
+	autoFire = v
+end, "auto")
+
+UI:Button("Remove All Blocks", function()
+	removeAllBlocks()
+end)
+
+-- loop
+task.spawn(function()
+	while true do
+		if autoFire then
+			fire()
+		end
+		task.wait(0.5)
+	end
+end)
