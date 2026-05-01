@@ -1,0 +1,56 @@
+local id = game.PlaceId
+
+if id == 1 then -- GAME NAME
+	loadstring(game:HttpGet("LINK"))()
+
+elseif id == 124768944923060 then -- 917359 Clicks for Owner!
+	loadstring(game:HttpGet("https://raw.githubusercontent.com/itay299/RobloxScripts/main/Scripts/917359ClicksForOwner"))()
+
+elseif id == 2537430692 then -- Blocks n' Props
+	loadstring(game:HttpGet("https://raw.githubusercontent.com/itay299/RobloxScripts/refs/heads/main/Scripts/blocksnprops"))()
+
+elseif id == 117106833785981 then -- Mutate the Brainrot
+	loadstring(game:HttpGet("https://raw.githubusercontent.com/itay299/RobloxScripts/refs/heads/main/Scripts/MutateABrainrot"))()
+
+elseif id == 96017656548489 then -- Ban or Get Banned
+	loadstring(game:HttpGet("https://raw.githubusercontent.com/itay299/RobloxScripts/refs/heads/main/Scripts/BanOrGetBanned"))()
+
+elseif id == 77393318863643 then -- Aura Ascension
+	loadstring(game:HttpGet("https://pastebin.com/raw/wtAckfY8"))()
+
+elseif id == 73114021306475 then -- Brainrot Ascension
+	loadstring(game:HttpGet("https://raw.githubusercontent.com/itay299/RobloxScripts/refs/heads/main/Scripts/BrainrotAscension"))()
+
+elseif id == 124473577469410 then -- Be a Lucky Block
+	loadstring(game:HttpGet("https://raw.githubusercontent.com/itay299/RobloxScripts/refs/heads/main/Scripts/Be%20A%20Lucky%20Block.lua"))()
+
+elseif id == 84261508768412 then -- Steal from Sammy
+	loadstring(game:HttpGet("https://raw.githubusercontent.com/itay299/RobloxScripts/refs/heads/main/Scripts/StealFromSammy.lua"))()
+
+elseif id == 78751326453321 then -- Jump Civilization
+	loadstring(game:HttpGet("https://raw.githubusercontent.com/itay299/RobloxScripts/refs/heads/main/Scripts/JumpCivilization"))()
+
+elseif id == 118915549367482 then -- Don't Wake The Brainrots
+	loadstring(game:HttpGet("https://raw.githubusercontent.com/VylikGylik/Script/refs/heads/main/Don't%20Wake%20the%20Brainrots"))()
+
+elseif id == 127742093697776 then -- Plants Vs Brainrots
+	loadstring(game:HttpGet("https://soluna-script.vercedl.app/plants-vs-brainrots.lua"))()
+
+elseif id == 73518504439978 then -- Don't Steal the Brainrots
+	loadstring(game:HttpGet("https://raw.githubusercontent.com/itay299/RobloxScripts/refs/heads/main/Scripts/DontStealTheBrainrots.lua"))()
+
+elseif id == 106685450523667 then -- Glide for Brainrots
+	loadstring(game:HttpGet("https://raw.githubusercontent.com/gumanba/Scripts/main/GlideforBrainrots"))()
+
+elseif id == 136764190843219 then -- Knockout
+	loadstring(game:HttpGet("https://icehub.fuckgays.shop/scripts/euqwjmeupapaiuwu.lua"))()
+
+elseif id == 107880818828504 then -- Escape Unstable SMP for Brainrots
+	loadstring(game:HttpGet("https://pastebin.com/raw/5kEEQ35r"))()
+
+elseif id == 97365843755210 then -- Cut Grass for Brainrots
+	loadstring(game:HttpGet("https://raw.githubusercontent.com/gumanba/Scripts/main/CutGrassforBrainrots"))()
+
+else
+	print("Unsupported Game:")
+end
