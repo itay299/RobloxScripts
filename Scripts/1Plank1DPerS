@@ -1,0 +1,92 @@
+local Xeno = loadstring(game:HttpGet("https://raw.githubusercontent.com/itay299/RobloxScripts/refs/heads/main/Scripts/!MyLibrary"))()
+
+local UI = Xeno:Create(
+    "1 Plank = $1/s",
+    game:GetService("MarketplaceService"):GetProductInfo(game.PlaceId).Name
+)
+
+local player = game.Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+------------------------------------------------
+-- AUTO MONEY (TOGGLE)
+------------------------------------------------
+local farming = false
+
+UI:Toggle("Auto Give Money", false, function(state)
+    farming = state
+
+    if farming then
+        task.spawn(function()
+            while farming do
+                pcall(function()
+                    game:GetService("ReplicatedStorage")
+                        :WaitForChild("StepEvent")
+                        :FireServer("World_1")
+                end)
+
+                task.wait(0.1)
+            end
+        end)
+    end
+end)
+
+------------------------------------------------
+-- POPUP REMOVER
+------------------------------------------------
+local popupEnabled = false
+
+local function hide(obj)
+    pcall(function()
+        if obj:IsA("GuiObject") then
+            obj.Visible = false
+            obj.BackgroundTransparency = 1
+        end
+
+        if obj:IsA("TextLabel") or obj:IsA("TextButton") then
+            obj.TextTransparency = 1
+        end
+
+        if obj:IsA("ImageLabel") or obj:IsA("ImageButton") then
+            obj.ImageTransparency = 1
+        end
+
+        if obj:IsA("BillboardGui") then
+            obj.Enabled = false
+        end
+
+        if obj:IsA("ParticleEmitter") then
+            obj.Enabled = false
+            obj.Rate = 0
+        end
+
+        if obj:IsA("Trail") or obj:IsA("Beam") then
+            obj.Enabled = false
+        end
+    end)
+end
+
+local function isTarget(obj)
+    return obj.Name and string.find(obj.Name:lower(), "money")
+end
+
+local function enablePopupBlock()
+    if popupEnabled then return end
+    popupEnabled = true
+
+    for _, v in ipairs(playerGui:GetDescendants()) do
+        if isTarget(v) then
+            hide(v)
+        end
+    end
+
+    playerGui.DescendantAdded:Connect(function(obj)
+        if isTarget(obj) then
+            hide(obj)
+        end
+    end)
+end
+
+UI:Button("Remove Money Popups", function()
+    enablePopupBlock()
+end)
