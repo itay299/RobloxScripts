@@ -1,119 +1,92 @@
--- Xeno UI
-local Xeno = loadstring(game:HttpGet("https://raw.githubusercontent.com/itay299/RobloxScripts/main/Scripts/!MyLibrary"))()
+local Xeno = loadstring(game:HttpGet("https://raw.githubusercontent.com/itay299/RobloxScripts/refs/heads/main/Scripts/!MyLibrary"))()
 
-local gameName = game:GetService("MarketplaceService"):GetProductInfo(game.PlaceId).Name
-local UI = Xeno:Create("917359 Clicks For Owner!", gameName)
+local UI = Xeno:Create(
+    "1 Plank = $1/s",
+    game:GetService("MarketplaceService"):GetProductInfo(game.PlaceId).Name
+)
 
--- Services
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local player = game.Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
 
--- Remotes
-local Remotes = ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Remotes")
-local ClickRemote = Remotes:WaitForChild("Click")
-local UpgradeRemote = Remotes:WaitForChild("BuyUpgrade")
-local RebirthRemote = Remotes:WaitForChild("RequestRebirth")
-local EggRemote = Remotes:WaitForChild("EggClick")
-local MergeRemote = Remotes:WaitForChild("MergeRequest")
+------------------------------------------------
+-- AUTO MONEY (TOGGLE)
+------------------------------------------------
+local farming = false
 
--- Toggles
-local autoClick = false
-local autoUpgrade = false
-local autoRebirth = false
-local autoEgg = false
-local autoMerge = false
+UI:Toggle("Auto Give Money", false, function(state)
+    farming = state
 
--- Selected Egg
-local selectedEgg = "BasicEgg"
+    if farming then
+        task.spawn(function()
+            while farming do
+                pcall(function()
+                    game:GetService("ReplicatedStorage")
+                        :WaitForChild("StepEvent")
+                        :FireServer("World_1")
+                end)
 
--- AUTO CLICK
-UI:Toggle("Auto Click", false, function(v)
-    autoClick = v
-end, "autoclick")
-
-task.spawn(function()
-    while true do
-        task.wait(0.05)
-        if autoClick then
-            pcall(function()
-                ClickRemote:FireServer()
-            end)
-        end
+                task.wait(0.1)
+            end
+        end)
     end
 end)
 
--- AUTO UPGRADES
-UI:Toggle("Auto Upgrades", false, function(v)
-    autoUpgrade = v
-end, "autoupgrade")
+------------------------------------------------
+-- POPUP REMOVER
+------------------------------------------------
+local popupEnabled = false
 
-task.spawn(function()
-    while true do
-        task.wait(0.5)
-        if autoUpgrade then
-            pcall(function()
-                UpgradeRemote:FireServer("AutoClickPower")
-                UpgradeRemote:FireServer("AutoClickSpeed")
-                UpgradeRemote:FireServer("ClickMultiplier")
-            end)
+local function hide(obj)
+    pcall(function()
+        if obj:IsA("GuiObject") then
+            obj.Visible = false
+            obj.BackgroundTransparency = 1
+        end
+
+        if obj:IsA("TextLabel") or obj:IsA("TextButton") then
+            obj.TextTransparency = 1
+        end
+
+        if obj:IsA("ImageLabel") or obj:IsA("ImageButton") then
+            obj.ImageTransparency = 1
+        end
+
+        if obj:IsA("BillboardGui") then
+            obj.Enabled = false
+        end
+
+        if obj:IsA("ParticleEmitter") then
+            obj.Enabled = false
+            obj.Rate = 0
+        end
+
+        if obj:IsA("Trail") or obj:IsA("Beam") then
+            obj.Enabled = false
+        end
+    end)
+end
+
+local function isTarget(obj)
+    return obj.Name and string.find(obj.Name:lower(), "money")
+end
+
+local function enablePopupBlock()
+    if popupEnabled then return end
+    popupEnabled = true
+
+    for _, v in ipairs(playerGui:GetDescendants()) do
+        if isTarget(v) then
+            hide(v)
         end
     end
-end)
 
--- AUTO REBIRTH
-UI:Toggle("Auto Rebirth", false, function(v)
-    autoRebirth = v
-end, "autorebirth")
-
-task.spawn(function()
-    while true do
-        task.wait(3)
-        if autoRebirth then
-            pcall(function()
-                RebirthRemote:FireServer()
-            end)
+    playerGui.DescendantAdded:Connect(function(obj)
+        if isTarget(obj) then
+            hide(obj)
         end
-    end
-end)
+    end)
+end
 
--- EGG DROPDOWN
-UI:Dropdown("Select Egg", {
-    "BasicEgg",
-    "PinkEgg",
-    "SpikeyEgg",
-    "GoldenEgg",
-    "VoidEgg"
-}, "BasicEgg", function(v)
-    selectedEgg = v
-end, "eggselect")
-
--- AUTO EGG
-UI:Toggle("Auto Open Egg", false, function(v)
-    autoEgg = v
-end, "autoegg")
-
-task.spawn(function()
-    while true do
-        task.wait(0.1)
-        if autoEgg then
-            pcall(function()
-                EggRemote:FireServer(selectedEgg)
-            end)
-        end
-    end
-end)
-
--- AUTO MERGE (10s)
-UI:Toggle("Auto Merge (10s)", false, function(v)
-    autoMerge = v
-end, "automerge")
-
-task.spawn(function()
-    while true do
-        task.wait(10)
-        if autoMerge then
-            pcall(function()
-                MergeRemote:InvokeServer("MergeAll", {})
-            end)
-        end
-    end
+UI:Button("Remove Money Popups", function()
+    enablePopupBlock()
 end)
