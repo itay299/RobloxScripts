@@ -1,13 +1,57 @@
+-- Xeno library
 local Xeno = loadstring(game:HttpGet("https://raw.githubusercontent.com/itay299/RobloxScripts/main/Scripts/!MyLibrary"))()
 local UI = Xeno:Create("Mutate the Brainrot", "MutateBrainrot")
 
 local Players = game:GetService("Players")
+local ProximityPromptService = game:GetService("ProximityPromptService")
+
 local player = Players.LocalPlayer
 
 local enabledTP = false
-local enabledDeleteDeaths = false
 local enabledDeleteWorse = false
+local enabledAutoBuy = false
+local enabledAutoTPBack = false
 
+local lastTPTime = 0
+local TP_COOLDOWN = 1.2
+
+local SAFE_POS = CFrame.new(37.78, 6.20, -79.66)
+
+-- =========================
+-- BLACKLIST
+-- =========================
+local BrainrotBlacklist = {
+	["viptimer"] = true,
+	["Luck"] = true,
+	["Body"] = true,
+	["kingcarrot"] = true,
+	["Benprompt"] = true,
+	["EventPart"] = true,
+	["Chimpanzini Bananini"] = true, -- $20/s
+	["Liliri Larila"] = true, -- $45/s
+	["Fruli Frula"] = true, -- $400/s
+	["Capuchino Assassino"] = true, -- $800/s
+	["Odin Din Dun"] = true, -- $15K/s
+	["Job Job Job Sahur"] = true, -- $80K/s
+	["Banana Dancana"] = true, -- $100K/s
+	["Tirilikalika Tirilikalako"] = true, -- $120K/s
+	["Love Love Love Sahur"] = true, -- $250K/s
+	["Strawberry Elephant"] = true, -- $300k/s
+	["Mobito Moby"] = true, -- $750K/s
+	["Teddino Rosino"] = true, -- $1M/s
+	["Illuminato Triangolo"] = true, -- $1.5M/s
+	["Saturno Saturnita"] = true, -- $1.8M/s
+	["Meowl"] = false, -- $2M/s F
+	["Nyannini Cattalini"] = false, -- $2.5M/s F
+	["1x1x1x1"] = false, -- $3M/s F
+	["Dragon Cannelloni"] = false, -- $5M/s F
+	["Noo My Heart"] = false, -- $10M/s F
+	["Skibidi Toilet"] = false -- $20M/s F
+}
+
+-- =========================
+-- MUTATION VALUES
+-- =========================
 local MutationMulti = {
 	Electric = 3,
 	Flaming = 4,
@@ -25,31 +69,66 @@ local MutationMulti = {
 	Admin = 1000
 }
 
-local currentBestMulti = -math.huge
+-- =========================
+-- ROOT
+-- =========================
+local function getRoot()
+	local char = player.Character or player.CharacterAdded:Wait()
+	return char:WaitForChild("HumanoidRootPart")
+end
 
--- Auto Delete Deaths
-UI:Toggle("Auto Delete Deaths", false, function(v)
-	enabledDeleteDeaths = v
-end)
+-- =========================
+-- HOLD CACHE (IMPORTANT FIX)
+-- =========================
+local heldCache = -math.huge
 
+local function getHeldMutationMulti()
+	local char = player.Character
+	if not char then return -math.huge end
+
+	local tool = char:FindFirstChildOfClass("Tool")
+	if not tool then return -math.huge end
+
+	local mutation = tool:FindFirstChild("Mutation")
+	if mutation and mutation:IsA("StringValue") then
+		return MutationMulti[mutation.Value] or -math.huge
+	end
+
+	return -math.huge
+end
+
+-- update cache safely (NO recursion)
 task.spawn(function()
 	while true do
-		if enabledDeleteDeaths then
-			local folder = workspace:FindFirstChild("SpawnedMutations")
-			if folder then
-				local death = folder:FindFirstChild("Death")
-				if death then
-					for _, obj in ipairs(death:GetChildren()) do
-						obj:Destroy()
-					end
-				end
-			end
-		end
-		task.wait(0.5)
+		heldCache = getHeldMutationMulti()
+		task.wait(0.2)
 	end
 end)
 
--- Delete Worse Mutations
+-- =========================
+-- DEATH CHECK
+-- =========================
+local function isDeathTooCloseX(pos)
+	local sa = workspace:FindFirstChild("ServerAttacks")
+	if not sa then return false end
+
+	local death = sa:FindFirstChild("Death")
+	if not death then return false end
+
+	for _, obj in ipairs(death:GetDescendants()) do
+		if obj:IsA("BasePart") then
+			if math.abs(obj.Position.X - pos.X) <= 2 then
+				return true
+			end
+		end
+	end
+
+	return false
+end
+
+-- =========================
+-- DELETE WORSE
+-- =========================
 UI:Toggle("Delete Worse Mutations", false, function(v)
 	enabledDeleteWorse = v
 end)
@@ -60,11 +139,9 @@ task.spawn(function()
 			local folder = workspace:FindFirstChild("SpawnedMutations")
 			if folder then
 				for name, multi in pairs(MutationMulti) do
-					if multi < currentBestMulti then
+					if multi < heldCache then
 						local obj = folder:FindFirstChild(name)
-						if obj then
-							obj:Destroy()
-						end
+						if obj then obj:Destroy() end
 					end
 				end
 			end
@@ -73,19 +150,15 @@ task.spawn(function()
 	end
 end)
 
--- Mutations Teleport
+-- =========================
+-- MUTATION TELEPORT
+-- =========================
 UI:Toggle("Mutations Teleport", false, function(v)
 	enabledTP = v
-
 	if not v then
-		currentBestMulti = -math.huge
+		lastTPTime = 0
 	end
 end)
-
-local function getRoot()
-	local char = player.Character or player.CharacterAdded:Wait()
-	return char:WaitForChild("HumanoidRootPart")
-end
 
 task.spawn(function()
 	while true do
@@ -94,42 +167,81 @@ task.spawn(function()
 			continue
 		end
 
+		if tick() - lastTPTime < TP_COOLDOWN then
+			task.wait(0.1)
+			continue
+		end
+
 		local root = getRoot()
 		local original = root.CFrame
 
 		local folder = workspace:FindFirstChild("SpawnedMutations")
 		if folder then
-			local bestPart = nil
+			local bestPart
 			local bestMulti = -math.huge
 
 			for name, multi in pairs(MutationMulti) do
 				local obj = folder:FindFirstChild(name)
 				if obj and obj:IsA("BasePart") then
-					if multi > currentBestMulti and multi > bestMulti then
-						bestPart = obj
-						bestMulti = multi
+					if multi > heldCache and multi > bestMulti then
+						if not isDeathTooCloseX(obj.Position) then
+							bestPart = obj
+							bestMulti = multi
+						end
 					end
 				end
 			end
 
 			if bestPart then
-				currentBestMulti = bestMulti
-
+				lastTPTime = tick()
 				root.CFrame = bestPart.CFrame + Vector3.new(0, 3, 0)
 				task.wait(0.15)
 				root.CFrame = original
 			end
 		end
 
-		task.wait(0.5)
+		task.wait(0.3)
 	end
 end)
 
--- GET INF LIVES BUTTON
-UI:Button("Get Inf Lives", function()
-	local stats = player:FindFirstChild("LivesLeft")
+-- =========================
+-- AUTO BUY (HOOK ONLY)
+-- =========================
+UI:Toggle("Auto Buy Brainrots", false, function(v)
+	enabledAutoBuy = v
+end)
 
-	if stats and stats:IsA("IntValue") then
-		stats.Value = 1e18
+ProximityPromptService.PromptShown:Connect(function(prompt)
+	if not enabledAutoBuy then return end
+	if not prompt or not prompt:IsA("ProximityPrompt") then return end
+
+	local name = prompt.Parent and prompt.Parent.Name
+	if not name then return end
+
+	if BrainrotBlacklist[name] then return end
+
+	-- put your game-specific interaction logic here
+end)
+
+-- =========================
+-- AUTO TP BACK
+-- =========================
+UI:Toggle("Auto TP Back", false, function(v)
+	enabledAutoTPBack = v
+end)
+
+task.spawn(function()
+	while true do
+		if enabledAutoTPBack and enabledTP then
+			local root = getRoot()
+			local dist = (root.Position - SAFE_POS.Position).Magnitude
+
+			if dist > 6 and tick() - lastTPTime > TP_COOLDOWN then
+				root.CFrame = SAFE_POS
+				lastTPTime = tick()
+			end
+		end
+
+		task.wait(0.5)
 	end
 end)
