@@ -1,0 +1,115 @@
+-- Xeno library
+local Xeno = loadstring(game:HttpGet("https://raw.githubusercontent.com/itay299/RobloxScripts/main/Scripts/!MyLibrary"))()
+
+local UI = Xeno:Create("Brainrot Clicker", "Brainrot Clicker")
+
+local RS = game:GetService("ReplicatedStorage")
+
+-- remotes
+local ClickRemote = RS:WaitForChild("Remotes"):WaitForChild("ClickBrainrot")
+local BuyUpgrade = RS:WaitForChild("Remotes"):WaitForChild("BuyUpgrade")
+local RebirthRemote = RS:WaitForChild("Remotes"):WaitForChild("Rebirth")
+local LuckyBlockRemote = RS:WaitForChild("Remotes"):WaitForChild("BuyLuckyBlockShopCash")
+
+-- toggle states
+local autoClick = false
+local autoBuy = false
+local autoRebirth = false
+local autoLucky = false
+
+-- upgrade list
+local upgrades = {
+    -- "Brainrot Brain",
+    -- "Tung Tung Bat",
+    -- "Toilet Factory",
+    -- "Blueberrinni Cashpusini",
+    -- "Melon Guard Gorillo",
+    -- "Trippi Cash Tank",
+    -- "Crocodilo Airport",
+    -- "Bananini Finger",
+    -- "Bandito Prison",
+    -- "Bananini Mine",
+    -- "Cappuccino Bamboo Cutter",
+    -- "Fruttodrillo basket",
+    -- "Tims Cheese Fabric",
+    -- "Combo Clicker Fusion",
+     "Cosmic Vacca",
+    "Void Walker Goat",
+    "Nova Cash Dragon",
+    "Strawberry Zoo",
+    "Skibidi Sewer",
+    "Meowl Claws",
+    "Six Seven Handshake",
+    "Coffindance Club"
+}
+
+-- AUTO CLICK (0.01)
+UI:Toggle("Auto Click", false, function(v)
+    autoClick = v
+
+    task.spawn(function()
+        while autoClick do
+            ClickRemote:FireServer(1)
+            task.wait()
+        end
+    end)
+end)
+
+-- AUTO BUY (0.3s per upgrade)
+UI:Toggle("Auto Buy Upgrades", false, function(v)
+    autoBuy = v
+
+    task.spawn(function()
+        local i = 1
+        while autoBuy do
+            local upgradeName = upgrades[i]
+
+            pcall(function()
+                BuyUpgrade:InvokeServer(upgradeName, 1)
+            end)
+
+            i += 1
+            if i > #upgrades then
+                i = 1
+            end
+
+            task.wait(1)
+        end
+    end)
+end)
+
+-- AUTO REBIRTH
+UI:Toggle("Auto Rebirth", false, function(v)
+    autoRebirth = v
+
+    task.spawn(function()
+        while autoRebirth do
+            pcall(function()
+                RebirthRemote:InvokeServer()
+            end)
+
+            task.wait(1)
+        end
+    end)
+end)
+
+-- AUTO LUCKY BLOCKS (4–6 Star)
+UI:Toggle("Auto Lucky Blocks (4–6 Star)", false, function(v)
+    autoLucky = v
+
+    task.spawn(function()
+        local stars = {4, 5, 6}
+
+        while autoLucky do
+            for _, star in ipairs(stars) do
+                if not autoLucky then break end
+
+                pcall(function()
+                    LuckyBlockRemote:InvokeServer(star)
+                end)
+
+                task.wait(5)
+            end
+        end
+    end)
+end)
