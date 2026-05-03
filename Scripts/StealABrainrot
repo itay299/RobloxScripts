@@ -1,0 +1,138 @@
+-- Xeno library
+local Xeno = loadstring(game:HttpGet("https://raw.githubusercontent.com/itay299/RobloxScripts/main/Scripts/!MyLibrary"))()
+local UI = Xeno:Create("Steal a Brainrot", "SAB")
+
+local Players = game:GetService("Players")
+local ProximityPromptService = game:GetService("ProximityPromptService")
+
+local player = Players.LocalPlayer
+
+local enabled = false
+local copyEnabled = false
+
+local lastName = "None"
+
+-- WHITELIST (ONLY NAMES, NO MONEY VALUES)
+local whitelist = {
+	["Strawberry Elephant"] = true, -- 750M/s
+	["Meowl"] = true, -- 600M/s
+	["John Pork"] = true, -- 500M/s
+	["Skibidi Toilet"] = true, -- 450M/s
+	["Dragon Cannelloni"] = true, -- 250M/s
+	["Cerberus"] = true, -- 175M/s
+	["Capitano Moby"] = true, -- 160M/s
+	["Burguro And Fryuro"] = true, -- 150M/s
+	["Cash or Card"] = true, -- 100M/s
+	["Ventoliero Pavonero"] = true, -- 65M/s
+	["Garama and Madundung"] = true, -- 50M/s
+	["Lavadorito Spinito"] = true, -- 45M/s
+	["Ketchuru and Musturu"] = true, -- 42.5M/s
+	["Tictac Sahur"] = true, -- 37.5M/s
+	["Ketupat Kepat"] = true, -- 35M/s
+	["Tang Tang Keletang"] = true, -- 33.5M/s
+	["Money Money Puggy"] = true, -- 21M/s
+	["DJ Panda"] = true, -- 17.5M/s
+	["Nuclearo Dinossauro"] = true -- 15M/s
+}
+
+-- =========================
+-- CLEAN NAME FUNCTION
+-- removes $ / numbers / B M K etc
+-- =========================
+local function cleanName(str)
+	str = tostring(str)
+
+	-- remove $ and numbers + B/M/K stuff
+	str = str:gsub("%$?%d+[%.%d]*[KMBkmb]?", "")
+
+	-- remove extra spaces
+	str = str:gsub("%s+", " ")
+	str = str:match("^%s*(.-)%s*$")
+
+	return str
+end
+
+-- =========================
+-- COPY FUNCTION
+-- =========================
+local function copyText(text)
+	text = tostring(text)
+
+	local formatted = string.format("[\"%s\"] = true, --", text)
+
+	pcall(function()
+		if typeof(setclipboard) == "function" then
+			setclipboard(formatted)
+		elseif typeof(toclipboard) == "function" then
+			toclipboard(formatted)
+		end
+	end)
+
+	local gui = Instance.new("ScreenGui")
+	gui.ResetOnSpawn = false
+	gui.Parent = player:WaitForChild("PlayerGui")
+
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.new(0, 280, 0, 45)
+	label.Position = UDim2.new(0.5, -140, 0.2, 0)
+	label.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+	label.TextColor3 = Color3.fromRGB(255, 255, 255)
+	label.TextScaled = true
+	label.Text = "Copied!"
+	label.Parent = gui
+
+	task.delay(1, function()
+		gui:Destroy()
+	end)
+end
+
+-- =========================
+-- UI
+-- =========================
+UI:Toggle("Auto Buy Brainrots (Whitelist)", false, function(v)
+	enabled = v
+end, "auto_brainrot")
+
+UI:Toggle("Copy Brainrot Name", false, function(v)
+	copyEnabled = v
+end, "copy_toggle")
+
+UI:Button("Copy Last Brainrot", function()
+	copyText(lastName)
+end)
+
+-- =========================
+-- MAIN SYSTEM
+-- =========================
+ProximityPromptService.PromptShown:Connect(function(prompt)
+	if not prompt or not prompt:IsA("ProximityPrompt") then return end
+
+	local rawName = prompt.ObjectText
+	if not rawName or rawName == "" then return end
+
+	local name = cleanName(rawName)
+	lastName = name
+
+	-- WHITELIST CHECK (NOW CLEAN)
+	if not whitelist[name] then return end
+
+	-- COPY
+	if copyEnabled then
+		copyText(name)
+	end
+
+	-- AUTO BUY
+	if not enabled then return end
+
+	task.spawn(function()
+		if prompt.HoldDuration > 0 then
+			prompt:InputHoldBegin()
+			task.wait(prompt.HoldDuration + 0.1)
+			prompt:InputHoldEnd()
+		else
+			pcall(function()
+				fireproximityprompt(prompt, 0)
+			end)
+		end
+	end)
+end)
