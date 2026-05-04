@@ -7,6 +7,7 @@ local ProximityPromptService = game:GetService("ProximityPromptService")
 
 local player = Players.LocalPlayer
 
+-- toggles
 local enabledTP = false
 local enabledDeleteWorse = false
 local enabledAutoBuy = false
@@ -32,25 +33,26 @@ local BrainrotBlacklist = {
 	["Fruli Frula"] = true, -- $400/s
 	["Capuchino Assassino"] = true, -- $800/s
 	["Odin Din Dun"] = true, -- $15K/s
+	["Brr Brr Patapim"] = true,
 	["Job Job Job Sahur"] = true, -- $80K/s
 	["Banana Dancana"] = true, -- $100K/s
 	["Tirilikalika Tirilikalako"] = true, -- $120K/s
 	["Love Love Love Sahur"] = true, -- $250K/s
-	["Strawberry Elephant"] = true, -- $300k/s
+	["Strawberry Elephant"] = true, -- $300K/s
 	["Mobito Moby"] = true, -- $750K/s
 	["Teddino Rosino"] = true, -- $1M/s
 	["Illuminato Triangolo"] = true, -- $1.5M/s
 	["Saturno Saturnita"] = false, -- $1.8M/s
-	["Meowl"] = false, -- $2M/s F
-	["Nyannini Cattalini"] = false, -- $2.5M/s F
-	["1x1x1x1"] = false, -- $3M/s F
-	["Dragon Cannelloni"] = false, -- $5M/s F
-	["Noo My Heart"] = false, -- $10M/s F
-	["Skibidi Toilet"] = false -- $20M/s F
+	["Meowl"] = false, -- $2M/s
+	["Nyannini Cattalini"] = false, -- $2.5M/s
+	["1x1x1x1"] = false, -- $3M/s
+	["Dragon Cannelloni"] = false, -- $5M/s
+	["Noo My Heart"] = false, -- $10M/s
+	["Skibidi Toilet"] = false -- $20M/s
 }
 
 -- =========================
--- MUTATION VALUES
+-- MUTATIONS
 -- =========================
 local MutationMulti = {
 	Electric = 3,
@@ -70,7 +72,7 @@ local MutationMulti = {
 }
 
 -- =========================
--- ROOT
+-- GET ROOT
 -- =========================
 local function getRoot()
 	local char = player.Character or player.CharacterAdded:Wait()
@@ -78,53 +80,29 @@ local function getRoot()
 end
 
 -- =========================
--- HOLD CACHE (IMPORTANT FIX)
+-- HELD VALUE
 -- =========================
 local heldCache = -math.huge
 
-local function getHeldMutationMulti()
-	local char = player.Character
-	if not char then return -math.huge end
-
-	local tool = char:FindFirstChildOfClass("Tool")
-	if not tool then return -math.huge end
-
-	local mutation = tool:FindFirstChild("Mutation")
-	if mutation and mutation:IsA("StringValue") then
-		return MutationMulti[mutation.Value] or -math.huge
-	end
-
-	return -math.huge
-end
-
--- update cache safely (NO recursion)
 task.spawn(function()
 	while true do
-		heldCache = getHeldMutationMulti()
+		local char = player.Character
+		local tool = char and char:FindFirstChildOfClass("Tool")
+
+		if tool then
+			local mut = tool:FindFirstChild("Mutation")
+			if mut and mut:IsA("StringValue") then
+				heldCache = MutationMulti[mut.Value] or -math.huge
+			else
+				heldCache = -math.huge
+			end
+		else
+			heldCache = -math.huge
+		end
+
 		task.wait(0.2)
 	end
 end)
-
--- =========================
--- DEATH CHECK
--- =========================
-local function isDeathTooCloseX(pos)
-	local sa = workspace:FindFirstChild("ServerAttacks")
-	if not sa then return false end
-
-	local death = sa:FindFirstChild("Death")
-	if not death then return false end
-
-	for _, obj in ipairs(death:GetDescendants()) do
-		if obj:IsA("BasePart") then
-			if math.abs(obj.Position.X - pos.X) <= 2 then
-				return true
-			end
-		end
-	end
-
-	return false
-end
 
 -- =========================
 -- DELETE WORSE
@@ -151,52 +129,40 @@ task.spawn(function()
 end)
 
 -- =========================
--- MUTATION TELEPORT
+-- TELEPORT BEST MUTATION
 -- =========================
 UI:Toggle("Mutations Teleport", false, function(v)
 	enabledTP = v
-	if not v then
-		lastTPTime = 0
-	end
+	if not v then lastTPTime = 0 end
 end)
 
 task.spawn(function()
 	while true do
-		if not enabledTP then
-			task.wait(0.5)
-			continue
-		end
+		if enabledTP and tick() - lastTPTime > TP_COOLDOWN then
 
-		if tick() - lastTPTime < TP_COOLDOWN then
-			task.wait(0.1)
-			continue
-		end
+			local root = getRoot()
+			local original = root.CFrame
 
-		local root = getRoot()
-		local original = root.CFrame
+			local folder = workspace:FindFirstChild("SpawnedMutations")
+			if folder then
+				local best, bestVal = nil, -math.huge
 
-		local folder = workspace:FindFirstChild("SpawnedMutations")
-		if folder then
-			local bestPart
-			local bestMulti = -math.huge
-
-			for name, multi in pairs(MutationMulti) do
-				local obj = folder:FindFirstChild(name)
-				if obj and obj:IsA("BasePart") then
-					if multi > heldCache and multi > bestMulti then
-						if not isDeathTooCloseX(obj.Position) then
-							bestPart = obj
-							bestMulti = multi
+				for name, multi in pairs(MutationMulti) do
+					local obj = folder:FindFirstChild(name)
+					if obj and obj:IsA("BasePart") then
+						if multi > heldCache and multi > bestVal then
+							best = obj
+							bestVal = multi
 						end
 					end
 				end
-			end
 
-			if bestPart then
-				lastTPTime = tick()
-				root.CFrame = bestPart.CFrame + Vector3.new(0, 3, 0)
-				task.wait(0.15)
-				root.CFrame = original
+				if best then
+					lastTPTime = tick()
+					root.CFrame = best.CFrame + Vector3.new(0, 3, 0)
+					task.wait(0.15)
+					root.CFrame = original
+				end
 			end
 		end
 
@@ -205,48 +171,50 @@ task.spawn(function()
 end)
 
 -- =========================
--- AUTO BUY (FIXED)
+-- AUTO BUY (PARENT BASED + RATE LOG)
 -- =========================
 UI:Toggle("Auto Buy Brainrots", false, function(v)
 	enabledAutoBuy = v
 end)
 
-local function cleanName(str)
-	str = tostring(str)
-	str = str:gsub("%$?%d+[%.%d]*[KMBkmb]?", "")
-	str = str:gsub("%s+", " ")
-	return str:match("^%s*(.-)%s*$")
+local function getData(prompt)
+	local parent = prompt.Parent
+	if not parent then return end
+
+	local raw = parent.Name
+
+	local rate = raw:match("%$?[%d%.]+%s*[KMBkmb]?%s*/s")
+
+	local name = raw:gsub("%$?[%d%.]+%s*[KMBkmb]?%s*/s", "")
+	name = name:gsub("%s+", " "):match("^%s*(.-)%s*$")
+
+	return name, rate
 end
 
-local lastTrigger = 0
+local last = 0
 
 ProximityPromptService.PromptShown:Connect(function(prompt)
 	if not enabledAutoBuy then return end
 	if not prompt or not prompt:IsA("ProximityPrompt") then return end
 
-	-- debounce
-	if tick() - lastTrigger < 0.2 then return end
-	lastTrigger = tick()
+	if tick() - last < 0.2 then return end
+	last = tick()
 
-	-- USE ObjectText (this is the fix)
-	local rawName = prompt.ObjectText
-	if not rawName or rawName == "" then return end
+	local name, rate = getData(prompt)
+	if not name then return end
 
-	local name = cleanName(rawName)
+	print("[BRAINROT]", name, "|", rate or "Unknown")
 
-	-- blacklist check (now actually works)
 	if BrainrotBlacklist[name] then return end
 
-	task.spawn(function()
-		pcall(function()
-			if prompt.HoldDuration > 0 then
-				prompt:InputHoldBegin()
-				task.wait(prompt.HoldDuration + 0.1)
-				prompt:InputHoldEnd()
-			else
-				fireproximityprompt(prompt, 0)
-			end
-		end)
+	pcall(function()
+		if prompt.HoldDuration and prompt.HoldDuration > 0 then
+			prompt:InputHoldBegin()
+			task.wait(prompt.HoldDuration + 0.05)
+			prompt:InputHoldEnd()
+		else
+			fireproximityprompt(prompt, 0)
+		end
 	end)
 end)
 
@@ -261,9 +229,7 @@ task.spawn(function()
 	while true do
 		if enabledAutoTPBack and enabledTP then
 			local root = getRoot()
-			local dist = (root.Position - SAFE_POS.Position).Magnitude
-
-			if dist > 6 and tick() - lastTPTime > TP_COOLDOWN then
+			if (root.Position - SAFE_POS.Position).Magnitude > 6 and tick() - lastTPTime > TP_COOLDOWN then
 				root.CFrame = SAFE_POS
 				lastTPTime = tick()
 			end
