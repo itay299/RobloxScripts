@@ -40,7 +40,7 @@ local BrainrotBlacklist = {
 	["Mobito Moby"] = true, -- $750K/s
 	["Teddino Rosino"] = true, -- $1M/s
 	["Illuminato Triangolo"] = true, -- $1.5M/s
-	["Saturno Saturnita"] = true, -- $1.8M/s
+	["Saturno Saturnita"] = false, -- $1.8M/s
 	["Meowl"] = false, -- $2M/s F
 	["Nyannini Cattalini"] = false, -- $2.5M/s F
 	["1x1x1x1"] = false, -- $3M/s F
@@ -205,22 +205,49 @@ task.spawn(function()
 end)
 
 -- =========================
--- AUTO BUY (HOOK ONLY)
+-- AUTO BUY (FIXED)
 -- =========================
 UI:Toggle("Auto Buy Brainrots", false, function(v)
 	enabledAutoBuy = v
 end)
 
+local function cleanName(str)
+	str = tostring(str)
+	str = str:gsub("%$?%d+[%.%d]*[KMBkmb]?", "")
+	str = str:gsub("%s+", " ")
+	return str:match("^%s*(.-)%s*$")
+end
+
+local lastTrigger = 0
+
 ProximityPromptService.PromptShown:Connect(function(prompt)
 	if not enabledAutoBuy then return end
 	if not prompt or not prompt:IsA("ProximityPrompt") then return end
 
-	local name = prompt.Parent and prompt.Parent.Name
-	if not name then return end
+	-- debounce
+	if tick() - lastTrigger < 0.2 then return end
+	lastTrigger = tick()
 
+	-- USE ObjectText (this is the fix)
+	local rawName = prompt.ObjectText
+	if not rawName or rawName == "" then return end
+
+	local name = cleanName(rawName)
+
+	-- blacklist check (now actually works)
 	if BrainrotBlacklist[name] then return end
 
-	-- put your game-specific interaction logic here
+	task.spawn(function()
+		pcall(function()
+			if prompt.HoldDuration > 0 then
+				prompt:InputHoldBegin()
+				task.wait(prompt.HoldDuration + 0.1)
+				prompt:InputHoldEnd()
+			else
+				fireproximityprompt(prompt, 0)
+			end
+		end)
+	end)
 end)
 
 -- =========================
