@@ -1,14 +1,15 @@
 -- Xeno library
 local Xeno = loadstring(game:HttpGet("https://raw.githubusercontent.com/itay299/RobloxScripts/main/Scripts/!MyLibrary"))()
-local UI = Xeno:Create("Fake a Brainrot", "FakeBrainrot")
+local UI = Xeno:Create("Fake a Brainrot", "BrainrotHub")
 
 local Players = game:GetService("Players")
 local ProximityPromptService = game:GetService("ProximityPromptService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local player = Players.LocalPlayer
 
 -- =========================
--- SETTINGS
+-- STATE
 -- =========================
 local detectEnabled = false
 local autoStealEnabled = false
@@ -19,92 +20,33 @@ local activeStealPrompt = nil
 local fakeGui = nil
 local activeFakePrompt = nil
 
--- GOOD BRAINROTS
+-- =========================
+-- BRAINROTS
+-- =========================
 local goods = {
-	["Strawberry Elephant"] = true, -- 300M/s
-	["67"] = true, -- 200M/s
-	["Dragon Cannelloni"] = true -- 100M/s
+	["Strawberry Elephant"] = true,
+	["67"] = true,
+	["Dragon Cannelloni"] = true
 }
 
 -- =========================
--- UI
+-- NAME FORMAT
 -- =========================
-UI:Toggle("Detect Fake Brainrots", false, function(v)
-	detectEnabled = v
-
-	if not v then
-		activeFakePrompt = nil
-		if fakeGui then
-			fakeGui:Destroy()
-			fakeGui = nil
-		end
-	end
-end, "fake_detect")
-
-UI:Toggle("Auto Steal Good Brainrots", false, function(v)
-	autoStealEnabled = v
-end, "auto_steal")
-
-UI:Button("Set Base", function()
-	local char = player.Character
-	local root = char and char:FindFirstChild("HumanoidRootPart")
-
-	if root then
-		basePosition = root.CFrame
-	end
-end)
-
--- =========================
--- TELEPORT HOME
--- =========================
-UI:Button("Teleport Home", function()
-	local args = {
-		"home"
-	}
-
-	game:GetService("ReplicatedStorage")
-		:WaitForChild("Events")
-		:WaitForChild("TopNavTeleport")
-		:FireServer(unpack(args))
-end)
-
--- =========================
--- BRAINROT SYSTEM
--- =========================
-local brainrotInput = ""
-
-local function formatBrainrot(str)
+local function formatName(str)
 	str = tostring(str):lower()
-
-	return (str:gsub("(%a)([%w']*)", function(first, rest)
-		return first:upper() .. rest
+	return (str:gsub("(%a)([%w']*)", function(a, b)
+		return a:upper() .. b
 	end))
 end
 
-UI:Textbox("Brainrot Name", function(text)
-	brainrotInput = text
-end, "brainrot_input")
-
-UI:Button("Become Brainrot", function()
-	if brainrotInput == "" then return end
-
-	local formatted = formatBrainrot(brainrotInput)
-
-	local args = {
-		formatted
-	}
-
-	game:GetService("ReplicatedStorage")
-		:WaitForChild("Events")
-		:WaitForChild("FakeSystem_StartFake")
-		:FireServer(unpack(args))
-end)
-
 -- =========================
--- FAKE GUI
+-- GUI
 -- =========================
 local function showGui()
-	if fakeGui then return end
+	if fakeGui then
+		fakeGui:Destroy()
+		fakeGui = nil
+	end
 
 	fakeGui = Instance.new("ScreenGui")
 	fakeGui.ResetOnSpawn = false
@@ -130,7 +72,7 @@ local function hideGui()
 end
 
 -- =========================
--- DETECTION (visibility based)
+-- DETECT FAKE (ONLY HOLD DURATION)
 -- =========================
 ProximityPromptService.PromptShown:Connect(function(prompt)
 	if not detectEnabled then return end
@@ -150,76 +92,96 @@ ProximityPromptService.PromptHidden:Connect(function(prompt)
 end)
 
 -- =========================
--- AUTO STEAL SYSTEM
+-- AUTO STEAL
 -- =========================
 task.spawn(function()
-	while true do
-		if autoStealEnabled then
-			local activeItems = workspace:FindFirstChild("ActiveItems")
+	while task.wait(1) do
+		if not autoStealEnabled then continue end
 
-			local char = player.Character
-			local root = char and char:FindFirstChild("HumanoidRootPart")
+		local activeItems = workspace:FindFirstChild("ActiveItems")
+		local char = player.Character
+		local root = char and char:FindFirstChild("HumanoidRootPart")
 
-			if activeItems and root then
-				for _, item in ipairs(activeItems:GetChildren()) do
-					if goods[item.Name] then
-						local mesh = item:FindFirstChild("Mesh")
-						local prompt = mesh and mesh:FindFirstChild("PickupPrompt")
+		if activeItems and root then
+			for _, item in ipairs(activeItems:GetChildren()) do
+				if goods[item.Name] then
+					local mesh = item:FindFirstChild("Mesh")
+					local prompt = mesh and mesh:FindFirstChild("PickupPrompt")
 
-						if prompt and prompt:IsA("ProximityPrompt") then
-							local original = root.CFrame
+					if prompt and prompt:IsA("ProximityPrompt") then
+						local original = root.CFrame
+						activeStealPrompt = prompt
 
-							activeStealPrompt = prompt
-
-							-- TP to item
-							if mesh:IsA("BasePart") then
-								root.CFrame = mesh.CFrame + Vector3.new(0, 3, 0)
-							elseif mesh:IsA("Model") then
-								local part = mesh:FindFirstChildWhichIsA("BasePart", true)
-								if part then
-									root.CFrame = part.CFrame + Vector3.new(0, 3, 0)
-								end
-							end
-
-							task.wait(0.2)
-
-							pcall(function()
-								fireproximityprompt(prompt)
-							end)
-
-							task.wait(0.2)
-
-							-- return to base
-							if basePosition then
-								root.CFrame = basePosition
-							else
-								root.CFrame = original
-							end
-
-							activeStealPrompt = nil
-
-							task.wait(1)
+						local targetPart = mesh:IsA("BasePart") and mesh or mesh:FindFirstChildWhichIsA("BasePart", true)
+						if targetPart then
+							root.CFrame = targetPart.CFrame + Vector3.new(0, 3, 0)
 						end
+
+						task.wait(0.2)
+						pcall(function()
+							fireproximityprompt(prompt)
+						end)
+
+						task.wait(0.2)
+
+						if basePosition then
+							root.CFrame = basePosition
+						else
+							root.CFrame = original
+						end
+
+						activeStealPrompt = nil
 					end
 				end
 			end
 		end
-
-		task.wait(1)
 	end
 end)
 
 -- =========================
--- PROMPT FILTER DURING STEAL
+-- UI
 -- =========================
-ProximityPromptService.PromptShown:Connect(function(prompt)
-	if activeStealPrompt and prompt ~= activeStealPrompt then
-		prompt.Enabled = false
+UI:Toggle("Detect Fake Brainrots", false, function(v)
+	detectEnabled = v
+	if not v then hideGui() activeFakePrompt = nil end
+end)
 
-		task.delay(1, function()
-			if prompt then
-				prompt.Enabled = true
-			end
-		end)
+UI:Toggle("Auto Steal Good Brainrots", false, function(v)
+	autoStealEnabled = v
+end)
+
+UI:Button("Set Base", function()
+	local char = player.Character
+	local root = char and char:FindFirstChild("HumanoidRootPart")
+	if root then
+		basePosition = root.CFrame
 	end
+end)
+
+-- =========================
+-- TELEPORT HOME
+-- =========================
+UI:Button("Teleport Home", function()
+	ReplicatedStorage:WaitForChild("Events")
+		:WaitForChild("TopNavTeleport")
+		:FireServer("home")
+end)
+
+-- =========================
+-- BECOME BRAINROT
+-- =========================
+local inputText = ""
+
+UI:Textbox("Brainrot Name", function(text)
+	inputText = text
+end)
+
+UI:Button("Become Brainrot", function()
+	if inputText == "" then return end
+
+	local formatted = formatName(inputText)
+
+	ReplicatedStorage:WaitForChild("Events")
+		:WaitForChild("FakeSystem_StartFake")
+		:FireServer(formatted)
 end)
