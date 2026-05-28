@@ -1,0 +1,56 @@
+local Xeno = loadstring(game:HttpGet("https://raw.githubusercontent.com/itay299/RobloxScripts/main/Scripts/!MyLibrary"
+))()
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local REAPER_PATH =
+"ReplicatedStorage.rbxts_include.node_modules.@rbxts.remo.src.container.staticReaperReq"
+
+local running = false
+
+local function getFromPath(path)
+    local current = game
+    for part in string.gmatch(path, "[^%.]+") do
+        current = current:FindFirstChild(part)
+        if not current then return nil end
+    end
+    return current
+end
+
+local function startAutoReaper()
+    if running then return end
+    running = true
+
+    task.spawn(function()
+        while running do
+            local reaper = getFromPath(REAPER_PATH)
+
+            if reaper then
+                pcall(function()
+                    if reaper:IsA("RemoteEvent") then
+                        reaper:FireServer()
+                    elseif reaper:IsA("RemoteFunction") then
+                        reaper:InvokeServer()
+                    end
+                end)
+            end
+
+            task.wait(20.1)
+        end
+    end)
+end
+
+local function stopAutoReaper()
+    running = false
+end
+
+-- UI
+local UI = Xeno:Create("+1 DMG Per Revive", "DMGRevive")
+
+UI:Toggle("Auto Reaper", false, function(state)
+    if state then
+        startAutoReaper()
+    else
+        stopAutoReaper()
+    end
+end, "AutoReaperToggle")
