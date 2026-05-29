@@ -1,0 +1,83 @@
+local Xeno = loadstring(game:HttpGet("https://raw.githubusercontent.com/itay299/RobloxScripts/main/Scripts/!MyLibrary"))()
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local LocalPlayer = Players.LocalPlayer
+
+local UI = Xeno:Create("Infinite Tycoon Simulator", "Infinite Tycoon Simulator")
+
+local AutoUpgradeIncome = false
+local AutoBuyWorkers = false
+local AutoGetWorkers = false
+
+local function GetMyPlot()
+    local Plots = workspace:FindFirstChild("Plots")
+    if not Plots then return nil end
+
+    for i = 1, 9 do
+        local Plot = Plots:FindFirstChild("Plot" .. i)
+        if Plot then
+            local Sign = Plot:FindFirstChild("Sign" .. i)
+            if Sign then
+                for _, Descendant in ipairs(Sign:GetDescendants()) do
+                    if Descendant:IsA("TextLabel") then
+                        if Descendant.Text:find("Owner: " .. LocalPlayer.Name, 1, true) then
+                            return Plot
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    return nil
+end
+
+UI:Toggle("Auto Upgrade Income", false, function(v)
+    AutoUpgradeIncome = v
+end)
+
+UI:Toggle("Auto Buy Workers", false, function(v)
+    AutoBuyWorkers = v
+end)
+
+UI:Toggle("Auto Get Workers", false, function(v)
+    AutoGetWorkers = v
+end)
+
+task.spawn(function()
+    while true do
+        if AutoUpgradeIncome then
+            pcall(function()
+                ReplicatedStorage:WaitForChild("UpgradeIncome"):FireServer()
+            end)
+        end
+        task.wait(5)
+    end
+end)
+
+task.spawn(function()
+    while true do
+        if AutoBuyWorkers then
+            local Plot = GetMyPlot()
+            local HRP = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+
+            if Plot and Plot:FindFirstChild("BUYER") and HRP then
+                HRP.CFrame = CFrame.new(Plot.BUYER.Position + Vector3.new(0, 3, 0))
+            end
+        end
+        task.wait(0.5)
+    end
+end)
+
+task.spawn(function()
+    while true do
+        if AutoGetWorkers then
+            pcall(function()
+                ReplicatedStorage:WaitForChild("BuyNewWorker"):FireServer()
+            end)
+        end
+        task.wait(0)
+    end
+end)
