@@ -6,8 +6,10 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local reaperRunning = false
 local combatRunning = false
+local attackRunning = false
+local autoAttackRunning = false
 
--- Auto Reaper (1s)
+-- Auto Reaper
 local function startAutoReaper()
     if reaperRunning then return end
     reaperRunning = true
@@ -23,10 +25,7 @@ local function startAutoReaper()
             :WaitForChild("staticReaperReq")
 
         while reaperRunning do
-            pcall(function()
-                remote:FireServer()
-            end)
-
+            remote:FireServer()
             task.wait(1)
         end
     end)
@@ -36,7 +35,7 @@ local function stopAutoReaper()
     reaperRunning = false
 end
 
--- Better Auto Combat (30.1s)
+-- Better Auto Combat
 local function startAutoCombat()
     if combatRunning then return end
     combatRunning = true
@@ -52,10 +51,7 @@ local function startAutoCombat()
             :WaitForChild("startTimeLimitChallengeReq")
 
         while combatRunning do
-            pcall(function()
-                remote:FireServer(1, 0)
-            end)
-
+            remote:FireServer(1, 0)
             task.wait(30.1)
         end
     end)
@@ -65,21 +61,77 @@ local function stopAutoCombat()
     combatRunning = false
 end
 
--- UI
-local UI = Xeno:Create("Plus 1 DMG Per Revive", "Plus 1 DMG Per Revive")
+-- Auto Attack EVERYTHING (FIXED = matches executor behavior)
+local function startAutoAttack()
+    if attackRunning then return end
+    attackRunning = true
 
-UI:Toggle("Auto Reaper (1s)", false, function(state)
-    if state then
-        startAutoReaper()
-    else
-        stopAutoReaper()
-    end
+    task.spawn(function()
+        local remote = ReplicatedStorage
+            :WaitForChild("rbxts_include")
+            :WaitForChild("node_modules")
+            :WaitForChild("@rbxts")
+            :WaitForChild("remo")
+            :WaitForChild("src")
+            :WaitForChild("container")
+            :WaitForChild("attack")
+
+        while attackRunning do
+            for i = 1, 15 do
+                if not attackRunning then return end
+
+                remote:FireServer(i)
+                task.wait(0.53)
+            end
+        end
+    end)
+end
+
+local function stopAutoAttack()
+    attackRunning = false
+end
+
+-- Auto Attack (no args spam)
+local function startAutoAttackSimple()
+    if autoAttackRunning then return end
+    autoAttackRunning = true
+
+    task.spawn(function()
+        local remote = ReplicatedStorage
+            :WaitForChild("rbxts_include")
+            :WaitForChild("node_modules")
+            :WaitForChild("@rbxts")
+            :WaitForChild("remo")
+            :WaitForChild("src")
+            :WaitForChild("container")
+            :WaitForChild("attack")
+
+        while autoAttackRunning do
+            remote:FireServer()
+            task.wait(0.1)
+        end
+    end)
+end
+
+local function stopAutoAttackSimple()
+    autoAttackRunning = false
+end
+
+-- UI
+local UI = Xeno:Create("+1 DMG Per Revive", "+1 DMG Per Revive")
+
+UI:Toggle("Auto Reaper", false, function(state)
+    if state then startAutoReaper() else stopAutoReaper() end
 end, "AutoReaperToggle")
 
-UI:Toggle("Better Auto Combat (30.1s)", false, function(state)
-    if state then
-        startAutoCombat()
-    else
-        stopAutoCombat()
-    end
+UI:Toggle("Better Auto Combat", false, function(state)
+    if state then startAutoCombat() else stopAutoCombat() end
 end, "AutoCombatToggle")
+
+UI:Toggle("Auto Attack EVERYTHING", false, function(state)
+    if state then startAutoAttack() else stopAutoAttack() end
+end, "AutoAttackToggle")
+
+UI:Toggle("Auto Attack", false, function(state)
+    if state then startAutoAttackSimple() else stopAutoAttackSimple() end
+end, "AutoAttackSimpleToggle")
