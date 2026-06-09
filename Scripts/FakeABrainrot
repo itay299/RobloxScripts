@@ -24,9 +24,9 @@ local activeFakePrompt = nil
 -- BRAINROTS
 -- =========================
 local goods = {
-	["Strawberry Elephant"] = true,
-	["67"] = true,
-	["Dragon Cannelloni"] = true
+	["Nyan Cat"] = true, -- 180B/s
+	["Skibidi Toilet"] = true, -- 144B/s
+	["Pepe"] = true, -- IDKB/s
 }
 
 -- =========================
@@ -105,14 +105,14 @@ task.spawn(function()
 		if activeItems and root then
 			for _, item in ipairs(activeItems:GetChildren()) do
 				if goods[item.Name] then
-					local mesh = item:FindFirstChild("Mesh")
-					local prompt = mesh and mesh:FindFirstChild("PickupPrompt")
+					local uiAnchor = item:FindFirstChild("_ClientUIAnchor")
+					local prompt = uiAnchor and uiAnchor:FindFirstChild("PickupPrompt")
 
 					if prompt and prompt:IsA("ProximityPrompt") then
-						local original = root.CFrame
+                        print("Found:", item.Name)
 						activeStealPrompt = prompt
 
-						local targetPart = mesh:IsA("BasePart") and mesh or mesh:FindFirstChildWhichIsA("BasePart", true)
+						local targetPart = item:IsA("BasePart") and item or item:FindFirstChildWhichIsA("BasePart", true)
 						if targetPart then
 							root.CFrame = targetPart.CFrame + Vector3.new(0, 3, 0)
 						end
@@ -124,11 +124,9 @@ task.spawn(function()
 
 						task.wait(0.2)
 
-						if basePosition then
-							root.CFrame = basePosition
-						else
-							root.CFrame = original
-						end
+						ReplicatedStorage:WaitForChild("Events")
+							:WaitForChild("TopNavTeleport")
+						:FireServer("home")
 
 						activeStealPrompt = nil
 					end
@@ -148,14 +146,6 @@ end)
 
 UI:Toggle("Auto Steal Good Brainrots", false, function(v)
 	autoStealEnabled = v
-end)
-
-UI:Button("Set Base", function()
-	local char = player.Character
-	local root = char and char:FindFirstChild("HumanoidRootPart")
-	if root then
-		basePosition = root.CFrame
-	end
 end)
 
 -- =========================
