@@ -1,6 +1,6 @@
 -- Xeno library
 local Xeno = loadstring(game:HttpGet("https://raw.githubusercontent.com/itay299/RobloxScripts/main/Scripts/!MyLibrary"))()
-local UI = Xeno:Create("Fake a Brainrot", "BrainrotHub")
+local UI = Xeno:Create("Fake a Brainrot", "Fake A Brainrot")
 
 local Players = game:GetService("Players")
 local ProximityPromptService = game:GetService("ProximityPromptService")
@@ -24,9 +24,10 @@ local activeFakePrompt = nil
 -- BRAINROTS
 -- =========================
 local goods = {
+    ["Meowl"] = true, -- IDKB/s
 	["Nyan Cat"] = true, -- 180B/s
 	["Skibidi Toilet"] = true, -- 144B/s
-	["Pepe"] = true, -- IDKB/s
+	["Pepe"] = true, -- 117B/s
 }
 
 -- =========================
