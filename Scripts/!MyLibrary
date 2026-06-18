@@ -6,9 +6,7 @@ local TweenService = game:GetService("TweenService")
 
 function Xeno:Create(titleText, scriptName)
     scriptName = scriptName or "DefaultScript"
-
     local player = game.Players.LocalPlayer
-
     local baseFolder = "ISCRIPTS"
     local scriptFolder = baseFolder.."/"..scriptName
     local configFolder = scriptFolder.."/configs"
@@ -24,9 +22,7 @@ function Xeno:Create(titleText, scriptName)
         end)
     end
 
-    local function getPath(name)
-        return configFolder.."/"..name..".json"
-    end
+    local function getPath(name) return configFolder.."/"..name..".json" end
 
     local function loadConfig(name)
         currentConfig = name
@@ -36,9 +32,7 @@ function Xeno:Create(titleText, scriptName)
             end
         end)
         if success and content then
-            pcall(function()
-                SaveData = HttpService:JSONDecode(content)
-            end)
+            pcall(function() SaveData = HttpService:JSONDecode(content) end)
         else
             SaveData = {}
         end
@@ -46,17 +40,13 @@ function Xeno:Create(titleText, scriptName)
 
     local function saveConfig()
         if writefile then
-            pcall(function()
-                writefile(getPath(currentConfig), HttpService:JSONEncode(SaveData))
-            end)
+            pcall(function() writefile(getPath(currentConfig), HttpService:JSONEncode(SaveData)) end)
         end
     end
 
     local function createConfig(name)
         pcall(function()
-            if not isfile(getPath(name)) then
-                writefile(getPath(name), "{}")
-            end
+            if not isfile(getPath(name)) then writefile(getPath(name), "{}") end
         end)
     end
 
@@ -68,17 +58,13 @@ function Xeno:Create(titleText, scriptName)
     gui.Name = "XenoPremium_" .. scriptName
     gui.ResetOnSpawn = false
     gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    
-    -- Try to parent to CoreGui for exploit visibility safety
     pcall(function() gui.Parent = game:GetService("CoreGui") end)
-    if not gui.Parent then
-        gui.Parent = player:WaitForChild("PlayerGui")
-    end
+    if not gui.Parent then gui.Parent = player:WaitForChild("PlayerGui") end
 
     -- Main Container (Premium Glassmorphism Style)
     local frame = Instance.new("Frame")
-    frame.Size = UDim2.new(0, 330, 0, 420)
-    frame.Position = UDim2.new(0.5, -165, 0.5, -210)
+    frame.Size = UDim2.new(0, 480, 0, 350)
+    frame.Position = UDim2.new(0.5, -240, 0.5, -175)
     frame.BackgroundColor3 = Color3.fromRGB(15, 15, 18)
     frame.BackgroundTransparency = 0.15
     frame.BorderSizePixel = 0
@@ -98,60 +84,54 @@ function Xeno:Create(titleText, scriptName)
     -- Title Bar
     local title = Instance.new("TextLabel")
     title.Size = UDim2.new(1, -45, 0, 40)
-    title.Position = UDim2.new(0, 10, 0, 0)
+    title.Position = UDim2.new(0, 15, 0, 0)
     title.BackgroundTransparency = 1
     title.Text = titleText or "Xeno UI"
     title.TextColor3 = Color3.fromRGB(240, 240, 245)
     title.Font = Enum.Font.GothamBold
     title.TextSize = 14
     title.TextXAlignment = Enum.TextXAlignment.Left
+    title.RichText = true
     title.Parent = frame
 
     -- Close Button
     local close = Instance.new("TextButton")
-    close.Size = UDim2.new(0, 30, 0, 30)
-    close.Position = UDim2.new(1, -35, 0, 5)
+    close.Size = UDim2.new(0, 26, 0, 26)
+    close.Position = UDim2.new(1, -36, 0, 7)
     close.Text = "×"
     close.Font = Enum.Font.GothamBold
-    close.TextSize = 20
+    close.TextSize = 18
     close.BackgroundColor3 = Color3.fromRGB(231, 76, 60)
     close.TextColor3 = Color3.new(1,1,1)
     close.Parent = frame
 
-    local closeCorner = Instance.new("UICorner")
-    closeCorner.CornerRadius = UDim.new(0, 6)
-    closeCorner.Parent = close
+    Instance.new("UICorner", close).CornerRadius = UDim.new(0, 6)
+    close.MouseButton1Click:Connect(function() gui:Destroy() end)
 
-    close.MouseButton1Click:Connect(function()
-        gui:Destroy()
-    end)
+    -- Tab System UI structure
+    local tabSidebar = Instance.new("Frame")
+    tabSidebar.Size = UDim2.new(0, 120, 1, -45)
+    tabSidebar.Position = UDim2.new(0, 10, 0, 40)
+    tabSidebar.BackgroundTransparency = 1
+    tabSidebar.BorderSizePixel = 0
+    tabSidebar.Visible = false
+    tabSidebar.Parent = frame
 
-    -- Scroll Area to automatically arrange all items nicely
-    local container = Instance.new("ScrollingFrame")
-    container.Size = UDim2.new(1, -20, 1, -50)
-    container.Position = UDim2.new(0, 10, 0, 45)
-    container.BackgroundTransparency = 1
-    container.BorderSizePixel = 0
-    container.ScrollBarThickness = 4
-    container.ScrollBarImageColor3 = Color3.fromRGB(60, 60, 70)
-    container.Parent = frame
+    local tabListLayout = Instance.new("UIListLayout")
+    tabListLayout.Padding = UDim.new(0, 6)
+    tabListLayout.Parent = tabSidebar
 
-    local layout = Instance.new("UIListLayout")
-    layout.Padding = UDim.new(0, 8)
-    layout.SortOrder = Enum.SortOrder.LayoutOrder
-    layout.Parent = container
+    local pageContainer = Instance.new("Frame")
+    pageContainer.Size = UDim2.new(1, -20, 1, -50)
+    pageContainer.Position = UDim2.new(0, 10, 0, 45)
+    pageContainer.BackgroundTransparency = 1
+    pageContainer.BorderSizePixel = 0
+    pageContainer.Parent = frame
 
-    -- Automatically scale scroll canvas
-    layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-        container.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + 10)
-    end)
+    local pages = {}
+    local tabButtons = {}
+    local activePage = nil
 
-    local UI = {}
-    UI._frame = frame
-    UI._container = container
-    UI._binds = {}
-
-    -- Hover effect helper
     local function applyHover(btn, defaultColor, hoverColor)
         btn.MouseEnter:Connect(function()
             TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = hoverColor}):Play()
@@ -161,275 +141,367 @@ function Xeno:Create(titleText, scriptName)
         end)
     end
 
-    -- BUTTON
-    function UI:Button(text, callback)
-        local btn = Instance.new("TextButton")
-        btn.Size = UDim2.new(1, -8, 0, 36)
-        btn.BackgroundColor3 = Color3.fromRGB(35, 35, 42)
-        btn.TextColor3 = Color3.fromRGB(230, 230, 235)
-        btn.Text = text
-        btn.Font = Enum.Font.GothamBold
-        btn.TextSize = 13
-        btn.Parent = self._container
+    -- Create a Page object
+    local function createPage(name, hasSearchBar)
+        local pageFrame = Instance.new("Frame")
+        pageFrame.Size = UDim2.new(1, 0, 1, 0)
+        pageFrame.BackgroundTransparency = 1
+        pageFrame.BorderSizePixel = 0
+        pageFrame.Visible = false
+        pageFrame.Parent = pageContainer
 
-        local corner = Instance.new("UICorner")
-        corner.CornerRadius = UDim.new(0, 6)
-        corner.Parent = btn
+        local scroll = Instance.new("ScrollingFrame")
+        scroll.BackgroundTransparency = 1
+        scroll.BorderSizePixel = 0
+        scroll.ScrollBarThickness = 4
+        scroll.ScrollBarImageColor3 = Color3.fromRGB(60, 60, 70)
+        scroll.Parent = pageFrame
 
-        local stroke = Instance.new("UIStroke")
-        stroke.Color = Color3.fromRGB(50, 50, 60)
-        stroke.Thickness = 1
-        stroke.Parent = btn
+        local layout = Instance.new("UIListLayout")
+        layout.Padding = UDim.new(0, 6)
+        layout.SortOrder = Enum.SortOrder.LayoutOrder
+        layout.Parent = scroll
 
-        btn.MouseButton1Click:Connect(function()
-            -- Visual feedback scale effect
-            local tween = TweenService:Create(btn, TweenInfo.new(0.05, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, 0, true), {Size = UDim2.new(1, -12, 0, 34)})
-            tween:Play()
-            pcall(callback)
+        layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+            scroll.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + 10)
         end)
 
-        applyHover(btn, Color3.fromRGB(35, 35, 42), Color3.fromRGB(48, 48, 58))
-        return btn
-    end
+        local elements = {}
 
-    -- TOGGLE
-    function UI:Toggle(text, default, callback, saveKey)
-        local state = default
-        if saveKey and SaveData[saveKey] ~= nil then
-            state = SaveData[saveKey]
+        if hasSearchBar then
+            local searchBox = Instance.new("TextBox")
+            searchBox.Size = UDim2.new(1, -8, 0, 30)
+            searchBox.Position = UDim2.new(0, 0, 0, 0)
+            searchBox.BackgroundColor3 = Color3.fromRGB(22, 22, 26)
+            searchBox.TextColor3 = Color3.fromRGB(240, 240, 245)
+            searchBox.PlaceholderText = "Search in category..."
+            searchBox.Text = ""
+            searchBox.Font = Enum.Font.Gotham
+            searchBox.TextSize = 12
+            searchBox.Parent = pageFrame
+
+            Instance.new("UICorner", searchBox).CornerRadius = UDim.new(0, 6)
+            local stroke = Instance.new("UIStroke", searchBox)
+            stroke.Color = Color3.fromRGB(45, 45, 55)
+            stroke.Thickness = 1
+
+            scroll.Size = UDim2.new(1, 0, 1, -38)
+            scroll.Position = UDim2.new(0, 0, 0, 38)
+
+            -- Filter items based on textbox input
+            searchBox:GetPropertyChangedSignal("Text"):Connect(function()
+                local query = searchBox.Text:lower()
+                for _, el in ipairs(elements) do
+                    local instance = el.instance
+                    local itemText = el.text:lower()
+                    if query == "" or itemText:find(query) then
+                        instance.Visible = true
+                    else
+                        instance.Visible = false
+                    end
+                end
+                scroll.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + 10)
+            end)
+        else
+            scroll.Size = UDim2.new(1, 0, 1, 0)
+            scroll.Position = UDim2.new(0, 0, 0, 0)
         end
 
-        local btn = Instance.new("TextButton")
-        btn.Size = UDim2.new(1, -8, 0, 36)
-        btn.BackgroundColor3 = state and Color3.fromRGB(46, 204, 113) or Color3.fromRGB(50, 50, 60)
-        btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-        btn.Text = text .. " [" .. (state and "ON" or "OFF") .. "]"
-        btn.Font = Enum.Font.GothamBold
-        btn.TextSize = 13
-        btn.Parent = self._container
+        local Page = {}
+        Page._frame = pageFrame
+        Page._scroll = scroll
+        Page._elements = elements
 
-        local corner = Instance.new("UICorner")
-        corner.CornerRadius = UDim.new(0, 6)
-        corner.Parent = btn
+        -- BUTTON
+        function Page:Button(text, callback)
+            local btn = Instance.new("TextButton")
+            btn.Size = UDim2.new(1, -8, 0, 34)
+            btn.BackgroundColor3 = Color3.fromRGB(30, 30, 36)
+            btn.TextColor3 = Color3.fromRGB(230, 230, 235)
+            btn.Text = text
+            btn.Font = Enum.Font.GothamBold
+            btn.TextSize = 12
+            btn.RichText = true
+            btn.Parent = self._scroll
 
-        local stroke = Instance.new("UIStroke")
-        stroke.Color = Color3.fromRGB(70, 70, 80)
-        stroke.Thickness = 1
-        stroke.Parent = btn
+            Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+            local stroke = Instance.new("UIStroke", btn)
+            stroke.Color = Color3.fromRGB(45, 45, 55)
+            stroke.Thickness = 1
 
-        local function update()
+            btn.MouseButton1Click:Connect(function()
+                TweenService:Create(btn, TweenInfo.new(0.05, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, 0, true), {Size = UDim2.new(1, -12, 0, 32)}):Play()
+                pcall(callback)
+            end)
+
+            applyHover(btn, Color3.fromRGB(30, 30, 36), Color3.fromRGB(42, 42, 52))
+            table.insert(elements, {instance = btn, text = text:gsub("<[^<>]+>", "")})
+            return btn
+        end
+
+        -- TOGGLE
+        function Page:Toggle(text, default, callback, saveKey)
+            local state = default
+            if saveKey and SaveData[saveKey] ~= nil then state = SaveData[saveKey] end
+
+            local btn = Instance.new("TextButton")
+            btn.Size = UDim2.new(1, -8, 0, 34)
+            btn.BackgroundColor3 = state and Color3.fromRGB(46, 204, 113) or Color3.fromRGB(45, 45, 52)
+            btn.TextColor3 = Color3.fromRGB(255, 255, 255)
             btn.Text = text .. " [" .. (state and "ON" or "OFF") .. "]"
-            local targetCol = state and Color3.fromRGB(46, 204, 113) or Color3.fromRGB(50, 50, 60)
-            TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = targetCol}):Play()
-        end
+            btn.Font = Enum.Font.GothamBold
+            btn.TextSize = 12
+            btn.RichText = true
+            btn.Parent = self._scroll
 
-        btn.MouseButton1Click:Connect(function()
-            state = not state
-            update()
+            Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+            local stroke = Instance.new("UIStroke", btn)
+            stroke.Color = Color3.fromRGB(60, 60, 70)
+            stroke.Thickness = 1
 
-            if saveKey then
-                SaveData[saveKey] = state
-                saveConfig()
+            local function update()
+                btn.Text = text .. " [" .. (state and "ON" or "OFF") .. "]"
+                local targetCol = state and Color3.fromRGB(46, 204, 113) or Color3.fromRGB(45, 45, 52)
+                TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = targetCol}):Play()
             end
+
+            btn.MouseButton1Click:Connect(function()
+                state = not state
+                update()
+                if saveKey then SaveData[saveKey] = state saveConfig() end
+                pcall(callback, state)
+            end)
 
             pcall(callback, state)
-        end)
-
-        pcall(callback, state)
-        return btn
-    end
-
-    -- TEXTBOX (WITH BOTH DEFAULT & CALLBACK SUPPORT)
-    function UI:Textbox(placeholder, default, saveKey)
-        local cb = nil
-        local def = default
-        local sk = saveKey
-
-        -- Handle flexible argument callback parsing
-        if type(default) == "function" then
-            cb = default
-            def = ""
-            sk = nil
-        elseif type(saveKey) == "function" then
-            cb = saveKey
-            sk = nil
+            table.insert(elements, {instance = btn, text = text:gsub("<[^<>]+>", "")})
+            return btn
         end
 
-        local box = Instance.new("TextBox")
-        box.Size = UDim2.new(1, -8, 0, 36)
-        box.Text = def or ""
-        box.PlaceholderText = placeholder or "Input"
-        box.BackgroundColor3 = Color3.fromRGB(22, 22, 26)
-        box.TextColor3 = Color3.fromRGB(240, 240, 245)
-        box.Font = Enum.Font.Gotham
-        box.TextSize = 13
-        box.Parent = self._container
+        -- TEXTBOX
+        function Page:Textbox(placeholder, default, saveKey)
+            local cb = nil
+            local def = default
+            local sk = saveKey
+            if type(default) == "function" then cb = default def = "" sk = nil
+            elseif type(saveKey) == "function" then cb = saveKey sk = nil end
 
-        local corner = Instance.new("UICorner")
-        corner.CornerRadius = UDim.new(0, 6)
-        corner.Parent = box
+            local box = Instance.new("TextBox")
+            box.Size = UDim2.new(1, -8, 0, 34)
+            box.Text = def or ""
+            box.PlaceholderText = placeholder or "Input"
+            box.BackgroundColor3 = Color3.fromRGB(22, 22, 26)
+            box.TextColor3 = Color3.fromRGB(240, 240, 245)
+            box.Font = Enum.Font.Gotham
+            box.TextSize = 12
+            box.Parent = self._scroll
 
-        local stroke = Instance.new("UIStroke")
-        stroke.Color = Color3.fromRGB(45, 45, 55)
-        stroke.Thickness = 1
-        stroke.Parent = box
+            Instance.new("UICorner", box).CornerRadius = UDim.new(0, 6)
+            local stroke = Instance.new("UIStroke", box)
+            stroke.Color = Color3.fromRGB(45, 45, 55)
+            stroke.Thickness = 1
 
-        if sk and SaveData[sk] then
-            box.Text = SaveData[sk]
-        end
+            if sk and SaveData[sk] then box.Text = SaveData[sk] end
 
-        local function triggerCallback()
-            if sk then
-                SaveData[sk] = box.Text
-                saveConfig()
+            local function triggerCallback()
+                if sk then SaveData[sk] = box.Text saveConfig() end
+                if cb then pcall(cb, box.Text) end
             end
-            if cb then
-                pcall(cb, box.Text)
-            end
+
+            box.FocusLost:Connect(triggerCallback)
+            box:GetPropertyChangedSignal("Text"):Connect(function()
+                if cb and not box:IsFocused() then pcall(cb, box.Text) end
+            end)
+
+            table.insert(elements, {instance = box, text = placeholder or ""})
+            return box
         end
 
-        box.FocusLost:Connect(triggerCallback)
-        box:GetPropertyChangedSignal("Text"):Connect(function()
-            if cb and not box:IsFocused() then
-                pcall(cb, box.Text)
-            end
-        end)
+        -- DROPDOWN
+        function Page:Dropdown(text, options, default, callback, saveKey)
+            options = options or {}
+            local selected = default or options[1]
+            if saveKey and SaveData[saveKey] then selected = SaveData[saveKey] end
+            local open = false
 
-        return box
-    end
+            local holder = Instance.new("Frame")
+            holder.Size = UDim2.new(1, -8, 0, 34)
+            holder.BackgroundColor3 = Color3.fromRGB(30, 30, 36)
+            holder.BorderSizePixel = 0
+            holder.Parent = self._scroll
 
-    -- DROPDOWN
-    function UI:Dropdown(text, options, default, callback, saveKey)
-        options = options or {}
+            Instance.new("UICorner", holder).CornerRadius = UDim.new(0, 6)
+            local holderStroke = Instance.new("UIStroke", holder)
+            holderStroke.Color = Color3.fromRGB(45, 45, 55)
+            holderStroke.Thickness = 1
 
-        local selected = default or options[1]
-        if saveKey and SaveData[saveKey] then
-            selected = SaveData[saveKey]
-        end
-
-        local open = false
-
-        local holder = Instance.new("Frame")
-        holder.Size = UDim2.new(1, -8, 0, 36)
-        holder.BackgroundColor3 = Color3.fromRGB(35, 35, 42)
-        holder.BorderSizePixel = 0
-        holder.Parent = self._container
-
-        local holderCorner = Instance.new("UICorner")
-        holderCorner.CornerRadius = UDim.new(0, 6)
-        holderCorner.Parent = holder
-
-        local holderStroke = Instance.new("UIStroke")
-        holderStroke.Color = Color3.fromRGB(50, 50, 60)
-        holderStroke.Thickness = 1
-        holderStroke.Parent = holder
-
-        local btn = Instance.new("TextButton")
-        btn.Size = UDim2.new(1, 0, 1, 0)
-        btn.BackgroundTransparency = 1
-        btn.TextColor3 = Color3.fromRGB(230, 230, 235)
-        btn.Text = "  " .. text .. ": " .. tostring(selected)
-        btn.Font = Enum.Font.GothamBold
-        btn.TextSize = 12
-        btn.TextXAlignment = Enum.TextXAlignment.Left
-        btn.Parent = holder
-
-        local arrow = Instance.new("TextLabel")
-        arrow.Size = UDim2.new(0, 30, 1, 0)
-        arrow.Position = UDim2.new(1, -30, 0, 0)
-        arrow.BackgroundTransparency = 1
-        arrow.Text = "▼"
-        arrow.TextColor3 = Color3.fromRGB(180, 180, 190)
-        arrow.Font = Enum.Font.GothamBold
-        arrow.TextSize = 12
-        arrow.Parent = holder
-
-        local listFrame = Instance.new("Frame")
-        listFrame.Size = UDim2.new(1, 0, 0, 0)
-        listFrame.BackgroundColor3 = Color3.fromRGB(22, 22, 26)
-        listFrame.BorderSizePixel = 0
-        listFrame.Visible = false
-        listFrame.Parent = self._container
-
-        local listCorner = Instance.new("UICorner")
-        listCorner.CornerRadius = UDim.new(0, 6)
-        listCorner.Parent = listFrame
-
-        local listStroke = Instance.new("UIStroke")
-        listStroke.Color = Color3.fromRGB(45, 45, 55)
-        listStroke.Thickness = 1
-        listStroke.Parent = listFrame
-
-        local listLayout = Instance.new("UIListLayout")
-        listLayout.Padding = UDim.new(0, 2)
-        listLayout.Parent = listFrame
-
-        local function refresh()
+            local btn = Instance.new("TextButton")
+            btn.Size = UDim2.new(1, 0, 1, 0)
+            btn.BackgroundTransparency = 1
+            btn.TextColor3 = Color3.fromRGB(230, 230, 235)
             btn.Text = "  " .. text .. ": " .. tostring(selected)
-        end
+            btn.Font = Enum.Font.GothamBold
+            btn.TextSize = 11
+            btn.TextXAlignment = Enum.TextXAlignment.Left
+            btn.RichText = true
+            btn.Parent = holder
 
-        local function build()
-            for _,v in ipairs(listFrame:GetChildren()) do
-                if v:IsA("TextButton") then
-                    v:Destroy()
+            local arrow = Instance.new("TextLabel")
+            arrow.Size = UDim2.new(0, 30, 1, 0)
+            arrow.Position = UDim2.new(1, -30, 0, 0)
+            arrow.BackgroundTransparency = 1
+            arrow.Text = "▼"
+            arrow.TextColor3 = Color3.fromRGB(180, 180, 190)
+            arrow.Font = Enum.Font.GothamBold
+            arrow.TextSize = 11
+            arrow.Parent = holder
+
+            local listFrame = Instance.new("Frame")
+            listFrame.Size = UDim2.new(1, 0, 0, 0)
+            listFrame.BackgroundColor3 = Color3.fromRGB(22, 22, 26)
+            listFrame.BorderSizePixel = 0
+            listFrame.Visible = false
+            listFrame.Parent = self._scroll
+
+            Instance.new("UICorner", listFrame).CornerRadius = UDim.new(0, 6)
+            local listStroke = Instance.new("UIStroke", listFrame)
+            listStroke.Color = Color3.fromRGB(45, 45, 55)
+            listStroke.Thickness = 1
+
+            local listLayout = Instance.new("UIListLayout", listFrame)
+            listLayout.Padding = UDim.new(0, 2)
+
+            local function refresh() btn.Text = "  " .. text .. ": " .. tostring(selected) end
+
+            local function build()
+                for _,v in ipairs(listFrame:GetChildren()) do
+                    if v:IsA("TextButton") then v:Destroy() end
                 end
-            end
+                for _,opt in ipairs(options) do
+                    local o = Instance.new("TextButton")
+                    o.Size = UDim2.new(1, 0, 0, 28)
+                    o.Text = "  " .. opt
+                    o.BackgroundColor3 = Color3.fromRGB(30, 30, 36)
+                    o.TextColor3 = Color3.fromRGB(210, 210, 215)
+                    o.Font = Enum.Font.Gotham
+                    o.TextSize = 10
+                    o.TextXAlignment = Enum.TextXAlignment.Left
+                    o.RichText = true
+                    o.Parent = listFrame
 
-            for _,opt in ipairs(options) do
-                local o = Instance.new("TextButton")
-                o.Size = UDim2.new(1, 0, 0, 30)
-                o.Text = "  " .. opt
-                o.BackgroundColor3 = Color3.fromRGB(30, 30, 36)
-                o.TextColor3 = Color3.fromRGB(210, 210, 215)
-                o.Font = Enum.Font.Gotham
-                o.TextSize = 11
-                o.TextXAlignment = Enum.TextXAlignment.Left
-                o.Parent = listFrame
+                    Instance.new("UICorner", o).CornerRadius = UDim.new(0, 4)
 
-                local oCorner = Instance.new("UICorner")
-                oCorner.CornerRadius = UDim.new(0, 4)
-                oCorner.Parent = o
-
-                o.MouseButton1Click:Connect(function()
-                    selected = opt
-                    open = false
-                    listFrame.Visible = false
-                    arrow.Text = "▼"
-
-                    if saveKey then
-                        SaveData[saveKey] = selected
-                        saveConfig()
-                    end
-
-                    refresh()
-                    pcall(callback, selected)
-                end)
-
-                applyHover(o, Color3.fromRGB(30, 30, 36), Color3.fromRGB(45, 45, 55))
-            end
-
-            task.wait()
-            listFrame.Size = UDim2.new(1, 0, 0, listLayout.AbsoluteContentSize.Y + 4)
-        end
-
-        build()
-        refresh()
-
-        btn.MouseButton1Click:Connect(function()
-            open = not open
-            if open then
-                listFrame.Visible = true
-                arrow.Text = "▲"
+                    o.MouseButton1Click:Connect(function()
+                        selected = opt
+                        open = false
+                        listFrame.Visible = false
+                        arrow.Text = "▼"
+                        if saveKey then SaveData[saveKey] = selected saveConfig() end
+                        refresh()
+                        pcall(callback, selected)
+                    end)
+                    applyHover(o, Color3.fromRGB(30, 30, 36), Color3.fromRGB(45, 45, 55))
+                end
                 task.wait()
                 listFrame.Size = UDim2.new(1, 0, 0, listLayout.AbsoluteContentSize.Y + 4)
-            else
-                listFrame.Visible = false
-                arrow.Text = "▼"
             end
-        end)
 
-        applyHover(holder, Color3.fromRGB(35, 35, 42), Color3.fromRGB(48, 48, 58))
-        return holder
+            build()
+            refresh()
+
+            btn.MouseButton1Click:Connect(function()
+                open = not open
+                if open then
+                    listFrame.Visible = true
+                    arrow.Text = "▲"
+                    task.wait()
+                    listFrame.Size = UDim2.new(1, 0, 0, listLayout.AbsoluteContentSize.Y + 4)
+                else
+                    listFrame.Visible = false
+                    arrow.Text = "▼"
+                end
+            end)
+
+            applyHover(holder, Color3.fromRGB(30, 30, 36), Color3.fromRGB(42, 42, 52))
+            table.insert(elements, {instance = holder, text = text:gsub("<[^<>]+>", "")})
+            return holder
+        end
+
+        return Page
+    end
+
+    -- Create default page
+    local defaultPage = createPage("Main", false)
+    defaultPage._frame.Visible = true
+    activePage = defaultPage
+    pages["Main"] = defaultPage
+
+    -- Switch Page logic
+    local function selectTab(name)
+        for pageName, p in pairs(pages) do
+            p._frame.Visible = (pageName == name)
+        end
+        for btnName, btn in pairs(tabButtons) do
+            if btnName == name then
+                btn.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+                btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+            else
+                btn.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
+                btn.TextColor3 = Color3.fromRGB(150, 150, 160)
+            end
+        end
+    end
+
+    -- Setup API on main UI object
+    local UI = {}
+    UI._frame = frame
+    UI._binds = {}
+
+    -- Forward elements directly to default page
+    function UI:Button(...) return defaultPage:Button(...) end
+    function UI:Toggle(...) return defaultPage:Toggle(...) end
+    function UI:Textbox(...) return defaultPage:Textbox(...) end
+    function UI:Dropdown(...) return defaultPage:Dropdown(...) end
+
+    -- Category Tab API
+    function UI:Category(name, hasSearchBar)
+        if pages[name] then return pages[name] end
+
+        if not tabSidebar.Visible then
+            tabSidebar.Visible = true
+            pageContainer.Size = UDim2.new(1, -145, 1, -50)
+            pageContainer.Position = UDim2.new(0, 135, 0, 45)
+
+            local defBtn = Instance.new("TextButton")
+            defBtn.Size = UDim2.new(1, 0, 0, 30)
+            defBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+            defBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+            defBtn.Text = "Main"
+            defBtn.Font = Enum.Font.GothamBold
+            defBtn.TextSize = 11
+            defBtn.Parent = tabSidebar
+            Instance.new("UICorner", defBtn).CornerRadius = UDim.new(0, 5)
+
+            defBtn.MouseButton1Click:Connect(function() selectTab("Main") end)
+            tabButtons["Main"] = defBtn
+        end
+
+        local page = createPage(name, hasSearchBar)
+        pages[name] = page
+
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(1, 0, 0, 30)
+        btn.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
+        btn.TextColor3 = Color3.fromRGB(150, 150, 160)
+        btn.Text = name
+        btn.Font = Enum.Font.GothamBold
+        btn.TextSize = 11
+        btn.Parent = tabSidebar
+        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 5)
+
+        btn.MouseButton1Click:Connect(function() selectTab(name) end)
+        tabButtons[name] = btn
+
+        return page
     end
 
     -- BIND SYSTEM
@@ -440,20 +512,16 @@ function Xeno:Create(titleText, scriptName)
     UIS.InputBegan:Connect(function(input, gp)
         if gp then return end
         local key = input.KeyCode.Name
-        if UI._binds[key] then
-            pcall(UI._binds[key])
-        end
+        if UI._binds[key] then pcall(UI._binds[key]) end
         
-        -- Toggle main GUI visibility when "Return" (Enter key) is pressed
+        -- Toggle main GUI visibility on Enter (Return) key press
         if input.KeyCode == Enum.KeyCode.Return then
             frame.Visible = not frame.Visible
         end
     end)
 
     function UI:BindToggle(key)
-        self:Bind(key, function()
-            frame.Visible = not frame.Visible
-        end)
+        self:Bind(key, function() frame.Visible = not frame.Visible end)
     end
 
     return UI
