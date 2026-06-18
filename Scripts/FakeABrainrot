@@ -1,178 +1,374 @@
--- Xeno library
-local Xeno = loadstring(game:HttpGet("https://raw.githubusercontent.com/itay299/RobloxScripts/main/Scripts/!MyLibrary"))()
+local Xeno = loadstring(HttpGet("https://raw.githubusercontent.com/itay299/RobloxScripts/refs/heads/main/Scripts/!MyLibrary"))()
 local UI = Xeno:Create("Fake a Brainrot", "Fake A Brainrot")
 
 local Players = game:GetService("Players")
 local ProximityPromptService = game:GetService("ProximityPromptService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local HttpService = game:GetService("HttpService")
 
 local player = Players.LocalPlayer
 
 -- =========================
--- STATE
+-- CATEGORIES (TABS) CREATION
 -- =========================
-local detectEnabled = false
+local TabAutomation = UI:Category("Automation")
+local TabFakes = UI:Category("Fakes & Disguises")
+local TabSelection = UI:Category("Pick List", true) -- Enable search bar!
+
+-- =========================
+-- AUTOMATION STATE
+-- =========================
+local autoCollectMoney = false
+local autoRebirth = false
 local autoStealEnabled = false
+local autoIndexEnabled = false
+local detectEnabled = false
 
-local basePosition = nil
 local activeStealPrompt = nil
-
 local fakeGui = nil
 local activeFakePrompt = nil
 
 -- =========================
--- BRAINROTS
+-- CONFIG & PERSISTENCE
 -- =========================
-local goods = {
-    ["Meowl"] = true, -- IDKB/s
-	["Nyan Cat"] = true, -- 180B/s
-	["Skibidi Toilet"] = true, -- 144B/s
-	["Pepe"] = true, -- 117B/s
-}
+local BrainrotConfig = require(ReplicatedStorage.Shared.BrainrotConfig)
+local goodBrainrots = {}
+
+local folderPath = "ISCRIPTS\\FakeABrainrot"
+local filePath = folderPath .. "\\good_brainrots.json"
+
+if makefolder then
+    pcall(function()
+        if not isfolder("ISCRIPTS") then makefolder("ISCRIPTS") end
+        if not isfolder("ISCRIPTS\\FakeABrainrot") then makefolder("ISCRIPTS\\FakeABrainrot") end
+    end)
+end
+
+local function loadConfig()
+    local success, content = pcall(function() return readfile(filePath) end)
+    if success and content then
+        local ok, data = pcall(function() return HttpService:JSONDecode(content) end)
+        if ok and type(data) == "table" then
+            goodBrainrots = data
+            return
+        end
+    end
+    -- Default pick list
+    for id, item in pairs(BrainrotConfig.Items) do
+        local r = item.Rarity
+        if r == "Legendary" or r == "Mythical" or r == "Cosmic" or r == "Secret" or r == "Celestial" or r == "Brainrot God" or r == "OG" then
+            goodBrainrots[id] = true
+        else
+            goodBrainrots[id] = false
+        end
+    end
+    pcall(function() writefile(filePath, HttpService:JSONEncode(goodBrainrots)) end)
+end
+
+local function saveConfig()
+    pcall(function() writefile(filePath, HttpService:JSONEncode(goodBrainrots)) end)
+end
+
+loadConfig()
 
 -- =========================
--- NAME FORMAT
+-- UTILS
 -- =========================
 local function formatName(str)
-	str = tostring(str):lower()
-	return (str:gsub("(%a)([%w']*)", function(a, b)
-		return a:upper() .. b
-	end))
+    str = tostring(str):lower()
+    return (str:gsub("(%a)([%w']*)", function(a, b)
+        return a:upper() .. b
+    end))
+end
+
+local function getPlayerPlot()
+    for _, plot in ipairs(workspace.Plots:GetChildren()) do
+        if plot:GetAttribute("OwnerName") == player.Name then
+            return plot
+        end
+    end
+    return nil
+end
+
+-- Helper to check if a brainrot is indexed (unlocked)
+local function isBrainrotIndexed(name)
+    local pg = player:FindFirstChild("PlayerGui")
+    local indexGui = pg and pg:FindFirstChild("IndexGui")
+    local mainFrame = indexGui and indexGui:FindFirstChild("MainFrame")
+    local gridContainer = mainFrame and mainFrame:FindFirstChild("GridContainer")
+    local itemFrame = gridContainer and gridContainer:FindFirstChild(name)
+    if itemFrame then
+        return itemFrame:GetAttribute("CurrentState") == "Unlocked"
+    end
+    return true -- Default to true if not found to avoid collecting it unnecessarily
 end
 
 -- =========================
--- GUI
+-- WARNING GUI (ALERTS)
 -- =========================
 local function showGui()
-	if fakeGui then
-		fakeGui:Destroy()
-		fakeGui = nil
-	end
+    if fakeGui then
+        fakeGui:Destroy()
+        fakeGui = nil
+    end
 
-	fakeGui = Instance.new("ScreenGui")
-	fakeGui.ResetOnSpawn = false
-	fakeGui.Parent = player:WaitForChild("PlayerGui")
+    fakeGui = Instance.new("ScreenGui")
+    fakeGui.ResetOnSpawn = false
+    pcall(function() fakeGui.Parent = game:GetService("CoreGui") end)
+    if not fakeGui.Parent then
+        fakeGui.Parent = player:WaitForChild("PlayerGui")
+    end
 
-	local label = Instance.new("TextLabel")
-	label.Size = UDim2.new(0, 350, 0, 60)
-	label.Position = UDim2.new(0.5, -175, 0.15, 0)
-	label.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-	label.BorderSizePixel = 0
-	label.TextColor3 = Color3.fromRGB(255, 60, 60)
-	label.TextScaled = true
-	label.Font = Enum.Font.GothamBold
-	label.Text = "Brainrot is Fake"
-	label.Parent = fakeGui
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(0, 350, 0, 60)
+    label.Position = UDim2.new(0.5, -175, 0.15, 0)
+    label.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+    label.BackgroundTransparency = 0.3
+    label.BorderSizePixel = 0
+    label.TextColor3 = Color3.fromRGB(255, 60, 60)
+    label.TextScaled = true
+    label.Font = Enum.Font.GothamBold
+    label.Text = "Brainrot is Fake"
+    label.Parent = fakeGui
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 10)
+    corner.Parent = label
+
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.fromRGB(255, 60, 60)
+    stroke.Thickness = 2
+    stroke.Parent = label
 end
 
 local function hideGui()
-	if fakeGui then
-		fakeGui:Destroy()
-		fakeGui = nil
-	end
+    if fakeGui then
+        fakeGui:Destroy()
+        fakeGui = nil
+    end
 end
 
--- =========================
--- DETECT FAKE (ONLY HOLD DURATION)
--- =========================
-ProximityPromptService.PromptShown:Connect(function(prompt)
-	if not detectEnabled then return end
-	if not prompt or not prompt:IsA("ProximityPrompt") then return end
+local function isFakeBrainrot(prompt)
+    for _, otherPlayer in ipairs(Players:GetPlayers()) do
+        if otherPlayer ~= player and otherPlayer.Character and prompt:IsDescendantOf(otherPlayer.Character) then
+            return true
+        end
+    end
+    return false
+end
 
-	if prompt.HoldDuration == 0.20000000298023224 then
-		activeFakePrompt = prompt
-		showGui()
-	end
+ProximityPromptService.PromptShown:Connect(function(prompt)
+    if not detectEnabled then return end
+    if not prompt or not prompt:IsA("ProximityPrompt") then return end
+
+    if isFakeBrainrot(prompt) or prompt.HoldDuration == 0.20000000298023224 then
+        activeFakePrompt = prompt
+        showGui()
+    end
 end)
 
 ProximityPromptService.PromptHidden:Connect(function(prompt)
-	if prompt == activeFakePrompt then
-		activeFakePrompt = nil
-		hideGui()
-	end
+    if prompt == activeFakePrompt then
+        activeFakePrompt = nil
+        hideGui()
+    end
 end)
 
 -- =========================
--- AUTO STEAL
+-- AUTOMATION THREADS
 -- =========================
+
+-- Money Collect Thread
 task.spawn(function()
-	while task.wait(1) do
-		if not autoStealEnabled then continue end
+    while task.wait(0.5) do
+        if autoCollectMoney then
+            pcall(function()
+                local plot = getPlayerPlot()
+                if plot and plot:FindFirstChild("Slots") then
+                    for _, col in ipairs(plot.Slots:GetChildren()) do
+                        if col.Name:find("Collector") and col:IsA("BasePart") then
+                            firetouchinterest(player.Character.HumanoidRootPart, col, 0)
+                            task.wait()
+                            firetouchinterest(player.Character.HumanoidRootPart, col, 1)
+                        end
+                    end
+                    local collectAll = plot:FindFirstChild("CollectAllZone")
+                    if collectAll and collectAll:IsA("BasePart") then
+                        firetouchinterest(player.Character.HumanoidRootPart, collectAll, 0)
+                        task.wait()
+                        firetouchinterest(player.Character.HumanoidRootPart, collectAll, 1)
+                    end
+                end
+            end)
+        end
+    end
+end)
 
-		local activeItems = workspace:FindFirstChild("ActiveItems")
-		local char = player.Character
-		local root = char and char:FindFirstChild("HumanoidRootPart")
+-- Rebirth Thread
+task.spawn(function()
+    while task.wait(2) do
+        if autoRebirth then
+            pcall(function()
+                ReplicatedStorage.Events.RebirthEvent:FireServer()
+            end)
+        end
+    end
+end)
 
-		if activeItems and root then
-			for _, item in ipairs(activeItems:GetChildren()) do
-				if goods[item.Name] then
-					local uiAnchor = item:FindFirstChild("_ClientUIAnchor")
-					local prompt = uiAnchor and uiAnchor:FindFirstChild("PickupPrompt")
+-- Steal & Index Thread
+task.spawn(function()
+    while task.wait(1) do
+        local activeItems = workspace:FindFirstChild("ActiveItems")
+        local char = player.Character
+        local root = char and char:FindFirstChild("HumanoidRootPart")
 
-					if prompt and prompt:IsA("ProximityPrompt") then
-                        print("Found:", item.Name)
-						activeStealPrompt = prompt
+        if activeItems and root then
+            for _, item in ipairs(activeItems:GetChildren()) do
+                local shouldGet = false
+                
+                -- Check standard Steal pick config
+                if autoStealEnabled and goodBrainrots[item.Name] then
+                    shouldGet = true
+                end
 
-						local targetPart = item:IsA("BasePart") and item or item:FindFirstChildWhichIsA("BasePart", true)
-						if targetPart then
-							root.CFrame = targetPart.CFrame + Vector3.new(0, 3, 0)
-						end
+                -- Check Index config (Get if not unlocked yet)
+                if autoIndexEnabled and not isBrainrotIndexed(item.Name) then
+                    shouldGet = true
+                end
 
-						task.wait(0.2)
-						pcall(function()
-							fireproximityprompt(prompt)
-						end)
+                if shouldGet then
+                    local uiAnchor = item:FindFirstChild("_ClientUIAnchor")
+                    local prompt = uiAnchor and uiAnchor:FindFirstChild("PickupPrompt")
 
-						task.wait(0.2)
+                    if prompt and prompt:IsA("ProximityPrompt") and prompt.Enabled then
+                        activeStealPrompt = prompt
+                        
+                        -- Teleport to brainrot
+                        root.CFrame = item:GetPivot() * CFrame.new(0, 2, 0)
+                        task.wait(0.15)
+                        fireproximityprompt(prompt)
+                        task.wait(0.1)
+                        
+                        -- Teleport Home via Remote
+                        pcall(function()
+                            ReplicatedStorage:WaitForChild("Events")
+                                :WaitForChild("TopNavTeleport")
+                                :FireServer("home")
+                        end)
 
-						ReplicatedStorage:WaitForChild("Events")
-							:WaitForChild("TopNavTeleport")
-						:FireServer("home")
-
-						activeStealPrompt = nil
-					end
-				end
-			end
-		end
-	end
+                        activeStealPrompt = nil
+                        task.wait(0.5) -- Grab cooldown
+                    end
+                end
+            end
+        end
+    end
 end)
 
 -- =========================
--- UI
+-- CATEGORY 1: AUTOMATION
 -- =========================
-UI:Toggle("Detect Fake Brainrots", false, function(v)
-	detectEnabled = v
-	if not v then hideGui() activeFakePrompt = nil end
+TabAutomation:Toggle("Auto Collect Money", false, function(v)
+    autoCollectMoney = v
+end, "AutoCollectMoney")
+
+TabAutomation:Toggle("Auto Rebirth", false, function(v)
+    autoRebirth = v
+end, "AutoRebirth")
+
+TabAutomation:Toggle("Auto Steal Good Brainrots", false, function(v)
+    autoStealEnabled = v
+end, "AutoSteal")
+
+TabAutomation:Toggle("Auto Index Missing Brainrots", false, function(v)
+    autoIndexEnabled = v
+end, "AutoIndex")
+
+TabAutomation:Button("Teleport Home", function()
+    ReplicatedStorage:WaitForChild("Events")
+        :WaitForChild("TopNavTeleport")
+        :FireServer("home")
 end)
 
-UI:Toggle("Auto Steal Good Brainrots", false, function(v)
-	autoStealEnabled = v
-end)
+-- =========================
+-- CATEGORY 2: FAKES
+-- =========================
+TabFakes:Toggle("Detect Fake Brainrots", false, function(v)
+    detectEnabled = v
+    if not v then hideGui() activeFakePrompt = nil end
+end, "DetectFake")
 
--- =========================
--- TELEPORT HOME
--- =========================
-UI:Button("Teleport Home", function()
-	ReplicatedStorage:WaitForChild("Events")
-		:WaitForChild("TopNavTeleport")
-		:FireServer("home")
-end)
-
--- =========================
--- BECOME BRAINROT
--- =========================
 local inputText = ""
-
-UI:Textbox("Brainrot Name", function(text)
-	inputText = text
+TabFakes:Textbox("Brainrot Name", function(text)
+    inputText = text
 end)
 
-UI:Button("Become Brainrot", function()
-	if inputText == "" then return end
-
-	local formatted = formatName(inputText)
-
-	ReplicatedStorage:WaitForChild("Events")
-		:WaitForChild("FakeSystem_StartFake")
-		:FireServer(formatted)
+TabFakes:Button("Become Brainrot", function()
+    if inputText == "" then return end
+    local formatted = formatName(inputText)
+    ReplicatedStorage:WaitForChild("Events")
+        :WaitForChild("FakeSystem_StartFake")
+        :FireServer(formatted)
 end)
+
+-- =========================
+-- CATEGORY 3: PICK LIST (COLOR-CODED & SORTED)
+-- =========================
+
+-- In-game rarity names & rank positions
+local rarityRanks = {
+    ["Common"] = 1,
+    ["Uncommon"] = 2,
+    ["Rare"] = 3,
+    ["Epic"] = 4,
+    ["Legendary"] = 5,
+    ["Mythical"] = 6,
+    ["Cosmic"] = 7,
+    ["Secret"] = 8,
+    ["Celestial"] = 9,
+    ["Brainrot God"] = 10,
+    ["OG"] = 11
+}
+
+local rarityColors = {
+    ["Common"] = "rgb(128,128,128)",
+    ["Uncommon"] = "rgb(0,255,0)",
+    ["Rare"] = "rgb(0,191,255)",
+    ["Epic"] = "rgb(128,0,128)",
+    ["Legendary"] = "rgb(255,215,0)",
+    ["Mythical"] = "rgb(224,176,255)",
+    ["Cosmic"] = "rgb(0,0,139)",
+    ["Secret"] = "rgb(255,0,0)",
+    ["Celestial"] = "rgb(255,105,180)",
+    ["Brainrot God"] = "rgb(255,250,200)",
+    ["OG"] = "rgb(255,120,20)"
+}
+
+local itemIds = {}
+for id, _ in pairs(BrainrotConfig.Items) do
+    table.insert(itemIds, id)
+end
+
+-- Sort: Rarity Rank (High -> Low), then Alphabetically
+table.sort(itemIds, function(a, b)
+    local rarityA = BrainrotConfig.Items[a].Rarity
+    local rarityB = BrainrotConfig.Items[b].Rarity
+    local rankA = rarityRanks[rarityA] or 0
+    local rankB = rarityRanks[rarityB] or 0
+    if rankA ~= rankB then
+        return rankA > rankB
+    end
+    return a < b
+end)
+
+for _, id in ipairs(itemIds) do
+    local item = BrainrotConfig.Items[id]
+    local isSelected = goodBrainrots[id]
+    local color = rarityColors[item.Rarity] or "rgba(109, 59, 59, 1)"
+    local displayLabel = string.format("Pick: %s <font color=\"%s\">[%s]</font>", id, color, item.Rarity)
+    
+    TabSelection:Toggle(displayLabel, isSelected, function(v)
+        goodBrainrots[id] = v
+        saveConfig()
+    end)
+end
