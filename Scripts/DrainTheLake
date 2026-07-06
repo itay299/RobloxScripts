@@ -1,0 +1,73 @@
+local Xeno = loadstring(game:HttpGet("https://raw.githubusercontent.com/itay299/RobloxScripts/main/Scripts/!MyLibrary"))()
+
+local UI = Xeno:Create("Drain the Lake", "Drain The Lake")
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local DrainEvent = ReplicatedStorage.VerdantRemotes["VDT_Bucket.Used"]
+local PourEvent = ReplicatedStorage.VerdantRemotes["VDT_Bucket.Poured"]
+local TokenEvent = ReplicatedStorage.VerdantRemotes["VDT_Tokens.Take"]
+
+local AutoDrain = false
+local AutoPour = false
+local AutoCollectToken = false
+
+local DrainDelay = 0.2
+
+UI:Toggle("Auto Drain", false, function(Value)
+    AutoDrain = Value
+
+    task.spawn(function()
+        while AutoDrain do
+            pcall(function()
+                DrainEvent:FireServer()
+            end)
+
+            task.wait(DrainDelay)
+        end
+    end)
+end)
+
+UI:Textbox("Drain Delay (Seconds)", "0.2", function(Value)
+    local Num = tonumber(Value)
+
+    if Num and Num > 0 then
+        DrainDelay = Num
+    end
+end)
+
+UI:Toggle("Auto Pour", false, function(Value)
+    AutoPour = Value
+
+    task.spawn(function()
+        while AutoPour do
+            pcall(function()
+                local Prompt = workspace.Scripted.CheckpointParts["1"]
+                    :GetChildren()[3]
+                    .Scripted.ProximityPosition.ProximityPrompt
+
+                PourEvent:FireServer(Prompt)
+            end)
+
+            task.wait(1)
+        end
+    end)
+end)
+
+UI:Toggle("Auto Collect Token", false, function(Value)
+    AutoCollectToken = Value
+
+    task.spawn(function()
+        while AutoCollectToken do
+            pcall(function()
+                local Prompt = workspace.Scripted.CheckpointParts["1"]
+                    :GetChildren()[3]
+                    .Scripted.ProximityPosition.ProximityPrompt
+
+                TokenEvent:FireServer(Prompt)
+            end)
+
+            task.wait(0.2)
+        end
+    end)
+end)
