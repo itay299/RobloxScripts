@@ -1,0 +1,184 @@
+-- Kill any previous instance of this script (stops its loops, removes its GUI)
+pcall(function()
+    local player = game:GetService("Players").LocalPlayer
+    local containers = {
+        game:GetService("CoreGui"),
+        player:FindFirstChild("PlayerGui"),
+    }
+    for _, container in ipairs(containers) do
+        if container then
+            local gui = container:FindFirstChild("XenoPremium_PickaxeEscape")
+            if gui then
+                -- Flip any toggles that are ON so the old loops stop running
+                for _, btn in ipairs(gui:GetDescendants()) do
+                    if btn:IsA("TextButton") and tostring(btn.Text):find("%[ON%]") then
+                        pcall(function()
+                            for _, conn in ipairs(btn.MouseButton1Click:GetConnections()) do
+                                pcall(conn.Function)
+                            end
+                        end)
+                    end
+                end
+                gui:Destroy()
+            end
+        end
+    end
+end)
+
+local Xeno = loadstring(game:HttpGet("https://raw.githubusercontent.com/itay299/RobloxScripts/refs/heads/main/Scripts/!MyLibrary"))()
+
+local UI = Xeno:Create("+1 Pickaxe Swing Escape", "PickaxeEscape")
+
+local Main = UI:Category("Main")
+local Teleports = UI:Category("Teleports")
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Player = Players.LocalPlayer
+
+local AutoRebirth = false
+local AutoWins = false
+local BlockNoClip = false
+
+local function GetCharacter()
+    local char = Player.Character or Player.CharacterAdded:Wait()
+    return char, char:WaitForChild("HumanoidRootPart")
+end
+
+-- The BEST win pad = the one with the highest "Wins" value on its HitBox.
+-- (If a pad has no Wins attribute, fall back to highest pad number, then rightmost.)
+local function GetBestWin()
+    local worlds = workspace:FindFirstChild("Worlds")
+    if not worlds then
+        return nil
+    end
+
+    local best, bestValue
+    local fallback, fbNum, fbX
+
+    for _, world in ipairs(worlds:GetChildren()) do
+        local pads = world:FindFirstChild("DefaultWinPads")
+        if pads then
+            for _, pad in ipairs(pads:GetChildren()) do
+                local hb = pad:FindFirstChild("HitBox")
+                if hb and hb:IsA("BasePart") then
+                    local wins = hb:GetAttribute("Wins")
+                    if type(wins) == "number" then
+                        if not bestValue or wins > bestValue then
+                            bestValue = wins
+                            best = hb
+                        end
+                    else
+                        local num = tonumber(pad.Name:match("DefaultWin(%d+)"))
+                            or tonumber(pad.Name:match("(%d+)$"))
+                            or 1
+                        if not fallback or num > fbNum or (num == fbNum and hb.Position.X > fbX) then
+                            fallback = hb
+                            fbNum = num
+                            fbX = hb.Position.X
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    return best or fallback
+end
+
+-- Block No-Clip (lightweight: cached part list + fast flip + periodic re-scan,
+-- so it doesn't lag even with thousands of blocks)
+local NoClipCache = {}
+local LastScan = 0
+
+task.spawn(function()
+    while task.wait(0.1) do
+        if BlockNoClip then
+            local now = os.clock()
+
+            -- Re-scan every 2 seconds to pick up new/removed blocks
+            if now - LastScan > 2 then
+                LastScan = now
+                local cache = {}
+                local blocks = workspace:FindFirstChild("Blocks")
+                if blocks then
+                    for _, block in ipairs(blocks:GetChildren()) do
+                        if block:IsA("BasePart") then
+                            if block.CanCollide then
+                                table.insert(cache, block)
+                            end
+                            for _, child in ipairs(block:GetChildren()) do
+                                if child:IsA("BasePart") and child.CanCollide then
+                                    table.insert(cache, child)
+                                end
+                            end
+                        end
+                    end
+                end
+                NoClipCache = cache
+            end
+
+            -- Fast flip: only touch parts that actually need it
+            local cache = NoClipCache
+            for i = #cache, 1, -1 do
+                local part = cache[i]
+                if part and part.Parent then
+                    if part.CanCollide then
+                        part.CanCollide = false
+                        part.CanQuery = false
+                    end
+                else
+                    table.remove(cache, i)
+                end
+            end
+        end
+    end
+end)
+
+-- Auto Rebirth
+task.spawn(function()
+    while task.wait(5) do
+        if AutoRebirth then
+            pcall(function()
+                ReplicatedStorage.Remotes.Rebirth:InvokeServer()
+            end)
+        end
+    end
+end)
+
+-- Auto Wins (always the highest-value win pad)
+task.spawn(function()
+    while task.wait(0.2) do
+        if AutoWins then
+            local _, hrp = GetCharacter()
+            local win = GetBestWin()
+
+            if win then
+                hrp.CFrame = win.CFrame + Vector3.new(0, 5, 0)
+            end
+        end
+    end
+end)
+
+-- GUI
+Main:Toggle("Block No-Clip", false, function(v)
+    BlockNoClip = v
+end)
+
+Main:Toggle("Auto Rebirth", false, function(v)
+    AutoRebirth = v
+end)
+
+Main:Toggle("Auto Wins", false, function(v)
+    AutoWins = v
+end)
+
+Teleports:Button("Teleport To Win", function()
+    local _, hrp = GetCharacter()
+    local win = GetBestWin()
+
+    if win then
+        hrp.CFrame = win.CFrame + Vector3.new(0, 5, 0)
+    end
+end)
