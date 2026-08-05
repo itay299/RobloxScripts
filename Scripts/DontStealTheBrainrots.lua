@@ -1,4 +1,3 @@
-
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
 local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"))()
 local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/InterfaceManager.lua"))()
@@ -208,6 +207,7 @@ local function startAutoPlotUpgrade()
         end
     end)
 end
+
 local function startAutoQuest()
     if questTask then task.cancel(questTask) end
 
@@ -249,6 +249,44 @@ local function findPickupPrompt(model)
     if pickup and pickup:IsA("ProximityPrompt") and pickup.ActionText == "Steal" then return pickup end
     return nil
 end
+
+-- ============================================================================
+-- SHARED "ONE BRAINROT AT A TIME" LOCK
+-- When multiple modes are on at once (e.g. Auto Index Brainrots + Auto Quest
+-- Farm + Auto Potion Farm), every loop used to steal brainrots on its own, so
+-- several brainrots got grabbed at the same time. Now all stealing loops share
+-- this lock: a loop steals ONE brainrot, brings it home, then releases the lock
+-- so the next loop can take its turn.
+-- ============================================================================
+local stealLock = false
+
+-- Steals exactly one brainrot (approach + pickup), brings it back home, and
+-- only then releases the lock. Other loops wait on stealLock for their turn.
+-- token/loopToken are passed in so we can abort cleanly if the loop is toggled
+-- off while waiting or mid-steal. Returns true if the pickup actually fired.
+local function stealOneBrainrot(prompt, token, loopToken)
+    -- Wait for our turn (or bail if the loop was turned off while waiting)
+    while stealLock and loopToken == token do
+        task.wait(0.2)
+    end
+    if loopToken ~= token then return false end
+
+    stealLock = true
+
+    local fired = approachAndFire(prompt)
+
+    task.wait(0.3)
+
+    -- Bring it home before letting anyone else steal
+    if loopToken == token then
+        local plotPos = getMyPlotPos()
+        if plotPos then tweenTo(plotPos) end
+    end
+
+    stealLock = false
+    return fired
+end
+
 local function runQuestLoop(token)
     while questLoopToken == token do
         if isQuestCompleted() then print("Quest completed, stopping."); break end
@@ -256,12 +294,9 @@ local function runQuestLoop(token)
         if not target then task.wait(1); continue end
         local prompt = findPickupPrompt(target)
         if not prompt then task.wait(0.5); continue end
-        local fired = approachAndFire(prompt)
-        if not fired or questLoopToken ~= token then task.wait(0.3); continue end
-        task.wait(0.3)
+        local fired = stealOneBrainrot(prompt, token, questLoopToken)
+        if not fired then task.wait(0.3); continue end
         if questLoopToken ~= token then break end
-        local plotPos = getMyPlotPos()
-        if plotPos then tweenTo(plotPos) end
         task.wait(0.7)
     end
 end
@@ -275,12 +310,20 @@ local function getNPCLabels(model)
     local ok, name, mutation, rarity = pcall(function()
         local frame = model.OverheadAttachment.CharacterInfo.Frame
         local m = frame.Mutation.Text
-        if m == "Mutation" then m = "Normal" end
-        return frame.CharacterName.Text, m, frame.Rarity.Text
+        if not m or m == "" or m == " " or m == "Mutation" then 
+            m = "Normal" 
+        end
+        local n = frame.CharacterName.Text
+        if n then
+            n = n:gsub("<[^>]+>", "")
+            n = n:match("^%s*(.-)%s*$")
+        end
+        return n, m, frame.Rarity.Text
     end)
     if ok then return name, mutation, rarity end
     return nil, nil, nil
 end
+
 local function farmModelPassesFilter(model)
     local name, mutation, rarity = getNPCLabels(model)
     if not name then return false end
@@ -294,25 +337,67 @@ local function farmModelPassesFilter(model)
     local matched = contains(selNames, name) or contains(selMutations, mutation) or contains(selRarities, rarity)
     return excludeMode and not matched or not excludeMode and matched
 end
+
+-- AUTO INDEX HELPER
+local function isNPCInIndex(name, mutation)
+    if not Replica or not Replica.Data or not Replica.Data.Index then return true end -- fallback to true if unable to check
+    local mutTable = Replica.Data.Index[mutation]
+    if not mutTable then return false end
+    return mutTable[name] == true
+end
+
+-- Helper to safely check if any farm toggle is on
+local function isAnyFarmEnabled()
+    local f1 = Options.AutoFarmToggle and Options.AutoFarmToggle.Value
+    local f2 = Options.AutoIndexToggle and Options.AutoIndexToggle.Value
+    local f3 = Options.AutoPotionFarmToggle and Options.AutoPotionFarmToggle.Value
+    return f1 or f2 or f3
+end
+
 local function runFarmLoop(token)
     while farmLoopToken == token do
-        local validModels = {}
+        local potions = {}
+        local indexMissing = {}
+        local normalFarm = {}
+        
+        local autoIndexOn = Options.AutoIndexToggle and Options.AutoIndexToggle.Value
+        local autoPotionFarmOn = Options.AutoPotionFarmToggle and Options.AutoPotionFarmToggle.Value
+        local autoFarmOn = Options.AutoFarmToggle and Options.AutoFarmToggle.Value
+
         for _, model in ipairs(workspace.Map.Zones.Field.NPC:GetChildren()) do
-            if model:IsA("Model") and farmModelPassesFilter(model) then
-                table.insert(validModels, model)
+            if model:IsA("Model") then
+                local name, mutation, rarity = getNPCLabels(model)
+                
+                if name then
+                    local isPotion = string.find(string.lower(name), "potion")
+                    
+                    if autoPotionFarmOn and isPotion then
+                        table.insert(potions, model)
+                    elseif autoIndexOn and mutation and not isPotion and not isNPCInIndex(name, mutation) then
+                        table.insert(indexMissing, model)
+                    elseif autoFarmOn and farmModelPassesFilter(model) then
+                        table.insert(normalFarm, model)
+                    end
+                end
             end
         end
-        if #validModels == 0 then task.wait(1); continue end
-        local target = validModels[math.random(1, #validModels)]
-        if not target or not target.Parent then task.wait(0.2); continue end
+
+        local target = nil
+        if #potions > 0 then
+            target = potions[math.random(1, #potions)]
+        elseif #indexMissing > 0 then
+            target = indexMissing[math.random(1, #indexMissing)]
+        elseif #normalFarm > 0 then
+            target = normalFarm[math.random(1, #normalFarm)]
+        end
+
+        if not target or not target.Parent then task.wait(1); continue end
+        
         local prompt = findPickupPrompt(target)
         if not prompt then task.wait(0.3); continue end
-        local fired = approachAndFire(prompt)
-        if not fired or farmLoopToken ~= token then task.wait(0.3); continue end
-        task.wait(0.3)
+        local fired = stealOneBrainrot(prompt, token, farmLoopToken)
+        if not fired then task.wait(0.3); continue end
         if farmLoopToken ~= token then break end
-        local plotPos = getMyPlotPos()
-        if plotPos then tweenTo(plotPos) end
         task.wait(0.7)
     end
 end
@@ -394,7 +479,7 @@ Tabs.Farm:AddDropdown("FarmFilterRarities", {
     Default = {},
 }):OnChanged(function() end)
 Tabs.Farm:AddToggle("AutoFarmToggle", { Title = "Auto Farm Brainrots", Default = false }):OnChanged(function()
-    if Options.AutoFarmToggle.Value then
+    if isAnyFarmEnabled() then
         farmLoopToken = farmLoopToken + 1
         local token = farmLoopToken
         task.spawn(function()
@@ -405,7 +490,39 @@ Tabs.Farm:AddToggle("AutoFarmToggle", { Title = "Auto Farm Brainrots", Default =
         farmLoopToken = farmLoopToken + 1
     end
 end)
+
+Tabs.Farm:AddSection("Smart Farming")
+Tabs.Farm:AddToggle("AutoIndexToggle", { Title = "Auto Index Brainrots", Default = false }):OnChanged(function()
+    if isAnyFarmEnabled() then
+        farmLoopToken = farmLoopToken + 1
+        local token = farmLoopToken
+        task.spawn(function()
+            local ok, err = pcall(runFarmLoop, token)
+            if not ok then warn("AutoIndex error:", err) end
+        end)
+    else
+        farmLoopToken = farmLoopToken + 1
+    end
+end)
+
+Tabs.Farm:AddToggle("AutoPotionFarmToggle", { Title = "Auto Potion Farm", Default = false }):OnChanged(function()
+    if isAnyFarmEnabled() then
+        farmLoopToken = farmLoopToken + 1
+        local token = farmLoopToken
+        task.spawn(function()
+            local ok, err = pcall(runFarmLoop, token)
+            if not ok then warn("AutoPotion error:", err) end
+        end)
+    else
+        farmLoopToken = farmLoopToken + 1
+    end
+end)
+
+-- Setting values MUST happen after all toggles are initialized to avoid nil indexing!
 Options.AutoFarmToggle:SetValue(false)
+Options.AutoIndexToggle:SetValue(false)
+Options.AutoPotionFarmToggle:SetValue(false)
+
 Tabs.Upgrades:AddSection("Auto Upgrade")
 Tabs.Upgrades:AddToggle("AutoUpgrade", { Title = "Auto Upgrade Brainrots", Default = false }):OnChanged(function()
     upgradeEnabled = Options.AutoUpgrade.Value
@@ -468,6 +585,7 @@ Tabs.Automation:AddToggle("AutoPlotUpgrade", { Title = "Auto Upgrade Plot", Defa
     plotUpgradeEnabled = Options.AutoPlotUpgrade.Value
     if plotUpgradeEnabled then startAutoPlotUpgrade() elseif plotUpgradeTask then task.cancel(plotUpgradeTask); plotUpgradeTask = nil end
 end)
+
 Tabs.Quests:AddSection("Quests")
 
 Tabs.Quests:AddButton({
@@ -479,24 +597,6 @@ Tabs.Quests:AddButton({
             :FireServer("SUBMIT_NPC")
     end
 })
-local questEnabled = false
-local questInterval = 10
-local questTask = nil
-
-local function startAutoQuest()
-    if questTask then task.cancel(questTask) end
-
-    questTask = task.spawn(function()
-        while questEnabled do
-            game:GetService("ReplicatedStorage")
-                :WaitForChild("Remotes")
-                :WaitForChild("Quest")
-                :FireServer("SUBMIT_NPC")
-
-            task.wait(questInterval)
-        end
-    end)
-end
 
 Tabs.Quests:AddToggle("AutoQuest", {
     Title = "Auto Give Quest",
