@@ -1,0 +1,1803 @@
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local LocalPlayer = Players.LocalPlayer
+
+-- ===================================================================
+-- LOAD LIBRARY
+-- ===================================================================
+local ok, Lib = pcall(function()
+    return loadstring(game:HttpGet("https://raw.githubusercontent.com/itay299/RobloxScripts/refs/heads/main/Scripts/!MyLibrary"))()
+end)
+if not ok then
+    warn("Failed to load library: " .. tostring(Lib))
+    return
+end
+
+-- Clean up any previous instance of this GUI (re-paste safety).
+for _, parent in ipairs({ game:GetService("CoreGui"), LocalPlayer:FindFirstChild("PlayerGui") }) do
+    if parent then
+        local old = parent:FindFirstChild("XenoPremium_SearchForTheNeedle")
+        if old then pcall(function() old:Destroy() end) end
+    end
+end
+
+-- ===================================================================
+-- GAME WIRING (verified against the live place, placeId 108628039999641)
+--   ReplicatedStorage.NeedleHaystack.PickHay      RemoteEvent(hayId)
+--     -> removes that hay piece if you're within range (~INTERACT_DISTANCE
+--        20, safely inside 12). Rate-limited: one pick per HayPickCooldown
+--        (0.4s for us), anything faster is silently dropped by the server.
+--   ReplicatedStorage.NeedleHaystack.GetHayState  RemoteFunction
+--     -> { remaining, needleRevealed, needleClaimed, activeIds, ... }
+--   NeedleTargetChanged / NeedleFound: when enough picks land near the
+--     needle (18 within 5.5 studs), the needle is revealed to you and its
+--     position / hay id gets broadcast; picking its piece hands it to you.
+--   Hay pieces render client-side in workspace.HaystackClient as Parts with
+--     attributes HayId (number) and HayMutation (Normal/Void/Rainbow/...).
+-- ===================================================================
+local NeedleHaystack = ReplicatedStorage:WaitForChild("NeedleHaystack")
+local PickHay = NeedleHaystack:WaitForChild("PickHay")
+local GetHayState = NeedleHaystack:WaitForChild("GetHayState")
+local SellHay = NeedleHaystack:WaitForChild("SellHay")
+local BuyUpgrade = NeedleHaystack:FindFirstChild("BuyUpgrade")
+local NeedleFound = NeedleHaystack:FindFirstChild("NeedleFound")
+local NeedleTargetChanged = NeedleHaystack:FindFirstChild("NeedleTargetChanged")
+-- Held tool phase channel (decompiled HeldToolPublish): FireServer(tool,
+-- phase) with phase "idle" when held. The weapon controllers publish
+-- charge/fire/swing-style phases through this remote.
+local HeldToolState = NeedleHaystack:FindFirstChild("HeldToolState")
+
+local Config = {}
+do
+    local okCfg, cfg = pcall(function()
+        return require(NeedleHaystack:WaitForChild("Config"))
+    end)
+    if okCfg and type(cfg) == "table" then Config = cfg end
+end
+
+-- ===================================================================
+-- STATE
+-- ===================================================================
+local Settings = {
+    needleESP = false,
+    mutationESP = false,
+    instantTake = false,
+    takeInterval = 0.45,
+    autoSell = false,
+    autoUpgrade = false,
+    autoClick = false, -- Auto Take Hay: simulated clicks/holds at crosshair
+    autoClickMode = "Auto", -- "Auto" | "Always hold" | "Always click"
+    weaponPhases = false, -- beta: publish HeldToolState phases alongside picks
+    autoClickMode = "Auto", -- "Auto" | "Always hold" | "Always click"
+    autoGems = false,
+    gemESP = false,
+    autoFind = false, -- AFK find-needle: auto-dig + round rollover
+    autoFindWalk = false, -- AFK: physically walk to the sell pad each round
+    gemRange = 15,
+    rangeBypass = false, -- opt-in TP assist; ALWAYS starts OFF (never persisted)
+}
+
+-- Upgrade tracks, ordered as a fallback/tiebreak (verified against
+-- NeedleHaystack.Config UPGRADE_ORDER / UPGRADE_TRACKS). BuyUpgrade
+-- :FireServer(track) buys the next level of that track; Auto Upgrade buys
+-- the CHEAPEST affordable non-maxed one each pass (see AUTO UPGRADE below),
+-- using this order only to break cost ties and to try unknown-cost tracks.
+local UPGRADE_PRIORITY = {
+    "HandHold",        -- hold-to-collect (cheap, huge QoL)
+    "Speed",           -- faster picks -> faster reveal farming
+    "Grab",            -- more strands per pick
+    "DroneSpeed",      -- chapter 2 tracks (silently skipped in ch1)
+    "DroneGrab",
+    "DroneCapacity",
+    "Pitchfork",
+    "PitchforkHold",
+    "PitchforkCooldown",
+    "Capacity",
+    "VacuumPower",
+    "VacuumCooling",
+    "VacuumRuntime",
+    "TntCooldown",
+    "TntPower",
+    "TntLuck",
+}
+
+-- Mutation -> ESP color. Every indexed mutation keeps its own fixed color
+-- (Gold = gold, etc), any mutation missing from this table renders PINK as
+-- an "unknown" marker, and Rainbow pieces are SOLID MAGENTA (user request:
+-- no more cycling colors).
+local MUTATION_COLORS = {
+    Rainbow  = Color3.fromRGB(255, 0, 255), -- solid magenta (user request)
+    Void     = Color3.fromRGB(70, 20, 110),
+    Electric = Color3.fromRGB(80, 160, 255),
+    Gold     = Color3.fromRGB(255, 200, 40),
+    Burnt    = Color3.fromRGB(80, 40, 20),
+    Glass    = Color3.fromRGB(190, 235, 245),
+    Muddy    = Color3.fromRGB(120, 80, 45),
+    Grassy   = Color3.fromRGB(90, 200, 70),
+    Damp     = Color3.fromRGB(60, 95, 55),
+}
+-- Anything not indexed above (and not Rainbow) shows as pure PINK so brand
+-- new mutations are impossible to miss.
+local UNKNOWN_MUTATION_COLOR = Color3.fromRGB(255, 0, 255)
+
+-- Needle-target intel gathered from remotes (used by Instant Take + ESP).
+local needleTargetId = nil      -- number HayId, if the game broadcasts one
+local needleTargetPos = nil     -- Vector3, if the game broadcasts a position
+local needleTargetInst = nil    -- Instance, if the event sends the model/part
+
+-- ===================================================================
+-- HELPERS
+-- ===================================================================
+local function getRoot()
+    local char = LocalPlayer.Character
+    return char and char:FindFirstChild("HumanoidRootPart")
+end
+
+-- NO teleporting by default (user request). Everything stays in-range only
+-- unless you flip the "Range Bypass" toggle, which is opt-in, NOT persisted,
+-- and always starts OFF on every paste/rejoin. The lock below still keeps
+-- pick/sell passes from colliding when bypass is on.
+local teleportBusy = false
+
+-- Simulated-input plumbing shared by Auto Take Hay + gem ClickDetector
+-- clicks: getVIM is the VirtualInputManager, aimLockUntil marks a window
+-- when a click/hold owns the virtual mouse (gem clicks pause during it).
+-- Declared HERE because both the gems and take-hay sections use them.
+local aimLockUntil = 0
+local vimCache = nil
+local function getVIM()
+    if vimCache == nil then
+        local ok, svc = pcall(function() return game:GetService("VirtualInputManager") end)
+        vimCache = (ok and svc) or false -- false = looked up, doesn't exist
+    end
+    return vimCache or nil
+end
+
+local function pickCooldown()
+    -- Server accepts one pick per this window (our cooldown attr, else Config)
+    local cd = tonumber(LocalPlayer:GetAttribute("HayPickCooldown"))
+    if not cd or cd <= 0 then
+        cd = tonumber(Config.PICK_COOLDOWN) or 0.55
+    end
+    return cd + 0.05
+end
+
+-- Name of the tool currently equipped (nil when bare-handed / none).
+local function currentToolName()
+    local char = LocalPlayer.Character
+    local tool = char and char:FindFirstChildOfClass("Tool")
+    return tool and tool.Name or nil
+end
+
+local function piecePosition(piece)
+    if piece:IsA("BasePart") then return piece.Position end
+    if piece:IsA("Model") then
+        local okP, pivot = pcall(function() return piece:GetPivot().Position end)
+        if okP then return pivot end
+    end
+    return nil
+end
+
+local function mutationColor(name)
+    -- Rainbow = SOLID MAGENTA (no more per-piece hue cycling), and an
+    -- unindexed mutation -> PINK (the "unknown" marker).
+    return MUTATION_COLORS[name] or UNKNOWN_MUTATION_COLOR
+end
+
+-- ===================================================================
+-- MUTATION ESP
+-- ===================================================================
+local pieceHighlights = {}   -- [piece] = Highlight
+local espHolder = Instance.new("Folder")
+espHolder.Name = "NeedleHaystack_ESPHolder"
+-- Parented to Workspace once the UI exists (Highlights only always-render
+-- as a Workspace descendant). Any orphan from a previous session is removed
+-- first so re-pastes never leave stray highlights on the pile.
+pcall(function()
+    local old = workspace:FindFirstChild(espHolder.Name)
+    if old then old:Destroy() end
+end)
+
+local function addPieceESP(piece)
+    if not Settings.mutationESP then return end
+    if pieceHighlights[piece] then return end
+    local mutation = piece:GetAttribute("HayMutation")
+    if not mutation or mutation == "Normal" then return end
+    if not piece:IsA("BasePart") and not piece:IsA("Model") then return end
+
+    local col = mutationColor(mutation)
+    local hl = Instance.new("Highlight")
+    hl.Name = "NeedleHaystack_ESP"
+    hl.FillColor = col
+    hl.OutlineColor = col
+    hl.FillTransparency = 0.55
+    hl.OutlineTransparency = 0
+    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    hl.Adornee = piece
+    -- Remember which mutation this highlight was built for so the 1s refresh
+    -- can rebuild it if the attribute changes (e.g. unknown -> indexed).
+    hl:SetAttribute("MutName", mutation)
+    -- pcall: a holder from an older paste gets destroyed on re-execute, and
+    -- a stale watcher could still fire here - keep that quiet and harmless.
+    local parented = pcall(function() hl.Parent = espHolder end)
+    if not parented or not hl.Parent then return end
+
+    pieceHighlights[piece] = hl
+end
+
+local function removePieceESP(piece)
+    local hl = pieceHighlights[piece]
+    if hl then
+        pcall(function() hl:Destroy() end)
+        pieceHighlights[piece] = nil
+    end
+end
+
+local function clearMutationESP()
+    for piece, hl in pairs(pieceHighlights) do
+        pcall(function() hl:Destroy() end)
+    end
+    pieceHighlights = {}
+end
+
+local function buildMutationESP()
+    clearMutationESP()
+    local haystack = workspace:FindFirstChild("HaystackClient")
+    if not haystack then return end
+    for _, piece in ipairs(haystack:GetChildren()) do
+        addPieceESP(piece)
+    end
+end
+
+-- Keep the ESP in sync while enabled: mutations spawn into HaystackClient as
+-- the round goes on, and picked pieces get destroyed (their Highlight dies
+-- with them, so just drop the map entry).
+local hayWatcherAdded, hayWatcherRemoved = nil, nil
+local function setHayWatchers(on)
+    if hayWatcherAdded then hayWatcherAdded:Disconnect() hayWatcherAdded = nil end
+    if hayWatcherRemoved then hayWatcherRemoved:Disconnect() hayWatcherRemoved = nil end
+    if on then
+        local haystack = workspace:FindFirstChild("HaystackClient")
+        if haystack then
+            hayWatcherAdded = haystack.ChildAdded:Connect(function(piece)
+                task.defer(addPieceESP, piece)
+            end)
+            hayWatcherRemoved = haystack.ChildRemoved:Connect(removePieceESP)
+        end
+    end
+end
+
+-- (Rainbow no longer animates - it renders as solid magenta via
+-- MUTATION_COLORS, so no color loop is needed here anymore.)
+
+-- ===================================================================
+-- NEEDLE ESP
+-- ===================================================================
+local needleHighlight = nil
+local needleSphere = nil -- used when the game only gives us a position
+
+-- needleClaimed/needleRevealed are read from replicated attributes (free);
+-- GetHayState is only invoked as a cached fallback (it ships a 13k-entry
+-- table). A RoundStartedAt change wipes cached needle intel for the new round.
+local roundStartedAt = NeedleHaystack:GetAttribute("RoundStartedAt")
+local lastStateCheck = 0
+local lastState = nil
+local function hayState()
+    local rsat = NeedleHaystack:GetAttribute("RoundStartedAt")
+    if rsat ~= roundStartedAt then
+        roundStartedAt = rsat
+        needleTargetId, needleTargetPos, needleTargetInst = nil, nil, nil
+        lastState = nil
+    end
+    if NeedleHaystack:GetAttribute("NeedleClaimed") == true then return { needleClaimed = true } end
+    local now = os.clock()
+    if lastState and now - lastStateCheck < 2 then return lastState end
+    lastStateCheck = now
+    local ok, state = pcall(function() return GetHayState:InvokeServer() end)
+    if ok and type(state) == "table" then
+        lastState = state
+        return state
+    end
+    return lastState
+end
+
+local SCAN_SKIP = {
+    -- NOTE: HaystackClient / HayUnderMatClient / HeldHayClient are NOT in
+    -- this list: the revealed needle can live inside those folders, and the
+    -- scan below only reads instance names, so walking them is cheap.
+    SellEffectsClient = true,
+    PickupEffectsClient = true,
+    GemsClient = true,
+    TntViewClient = true,
+    PitchforkViewClient = true,
+    VacuumViewClient = true,
+    HayBlastDebris = true,
+    Terrain = true,
+    Camera = true,
+}
+
+-- Scan the workspace for the objective instance. Matches "needle"
+-- (chapter 1) OR "key" (chapter 2 hides a key in the same pile instead of a
+-- needle). The EndCutscene decoy is excluded so we never highlight the
+-- cutscene prop. "key" uses a word match so random decor like "Monkey"
+-- never triggers it. Depth 3 catches needle models nested inside named
+-- folders like HiddenNeedleClient / NeedleObjectiveServer.
+local function nameMatchesObjective(n)
+    if n:find("needle", 1, true) then return true end
+    return n:find("%f[%a]key%f[%A]") ~= nil
+end
+local function findObjectiveInstance()
+    local cutscene = workspace:FindFirstChild("EndCutscene")
+    local function scan(inst, depth)
+        for _, c in ipairs(inst:GetChildren()) do
+            if (c:IsA("BasePart") or c:IsA("Model")) then
+                if not (cutscene and c:IsDescendantOf(cutscene))
+                    and nameMatchesObjective(c.Name:lower()) then
+                    return c
+                end
+            end
+            if depth < 3 and not SCAN_SKIP[c.Name] then
+                local found = scan(c, depth + 1)
+                if found then return found end
+            end
+        end
+        return nil
+    end
+    return scan(workspace, 0)
+end
+
+-- The hay piece carrying the broadcast needle HayId (the needle hides inside
+-- that piece) - used as a target when no model/position resolve.
+local function findHayPieceById(id)
+    local haystack = workspace:FindFirstChild("HaystackClient")
+    if not haystack or id == nil then return nil end
+    for _, piece in ipairs(haystack:GetChildren()) do
+        if piece:GetAttribute("HayId") == id then return piece end
+    end
+    return nil
+end
+
+local function clearNeedleESP()
+    if needleHighlight then
+        pcall(function() needleHighlight:Destroy() end)
+        needleHighlight = nil
+    end
+    if needleSphere then pcall(function() needleSphere:Destroy() end) needleSphere = nil end
+end
+
+-- Pull needle intel out of a GetHayState table without knowing the exact
+-- field names: the reveal may have happened BEFORE this script injected
+-- (we never saw NeedleTargetChanged fire), but GetHayState still knows.
+-- Any Vector3/CFrame under a pos-ish key -> position; any number under an
+-- id-ish key -> HayId (arrays like activeIds are tables, so they're skipped
+-- automatically); nested tables under a needle-ish key are scanned for
+-- Id/Position fields.
+local function harvestNeedleIntel(state)
+    for k, v in pairs(state) do
+        if type(k) == "string" then
+            local lk = k:lower()
+            local posish = lk:find("pos") or lk:find("cframe")
+                or lk:find("location") or lk:find("where")
+            local idish = lk:find("id") and not lk:find("ids")
+            local needleish = lk:find("needle") or lk:find("key")
+                or lk:find("target") or lk:find("objective")
+                or lk:find("reveal")
+            if posish and typeof(needleTargetPos) ~= "Vector3" then
+                if typeof(v) == "Vector3" then
+                    needleTargetPos = v
+                elseif typeof(v) == "CFrame" then
+                    needleTargetPos = v.Position
+                end
+            elseif idish and type(v) == "number" and needleTargetId == nil then
+                needleTargetId = v
+            elseif needleish and type(v) == "table" then
+                if type(v.Id) == "number" and needleTargetId == nil then
+                    needleTargetId = v.Id
+                elseif type(v.id) == "number" and needleTargetId == nil then
+                    needleTargetId = v.id
+                end
+                if typeof(needleTargetPos) ~= "Vector3" then
+                    if typeof(v.Position) == "Vector3" then
+                        needleTargetPos = v.Position
+                    elseif typeof(v.position) == "Vector3" then
+                        needleTargetPos = v.position
+                    elseif typeof(v.pos) == "Vector3" then
+                        needleTargetPos = v.pos
+                    end
+                end
+            end
+        end
+    end
+end
+
+local function updateNeedleESP()
+    if not Settings.needleESP then
+        clearNeedleESP()
+        return
+    end
+
+    -- ALWAYS on while the toggle is enabled (no reveal gate - the whole point
+    -- is to see it before it's revealed). Target resolution order: instance
+    -- the game broadcasts -> workspace scan (needle OR ch2 key) -> the hay
+    -- piece carrying the broadcast HayId -> broadcast position proxy.
+    local target = needleTargetInst
+    if typeof(target) ~= "Instance" or not target.Parent then
+        target = findObjectiveInstance()
+    end
+    if typeof(target) ~= "Instance" and needleTargetId ~= nil then
+        target = findHayPieceById(needleTargetId)
+    end
+
+    -- Still nothing? Ask GetHayState (cached 2s) - when it says the needle
+    -- is revealed, harvest whatever id/position it offers and retry. This
+    -- catches reveals that happened before this script injected.
+    if typeof(target) ~= "Instance" then
+        local state = hayState()
+        if type(state) == "table"
+            and (state.needleRevealed == true or state.revealed == true) then
+            harvestNeedleIntel(state)
+            if needleTargetId ~= nil then
+                target = findHayPieceById(needleTargetId)
+            end
+        end
+    end
+
+    -- Already showing the right thing (a real instance, or the position
+    -- proxy sphere at the current position when nothing better exists)?
+    -- Leave it alone.
+    if needleHighlight and needleHighlight.Parent and needleHighlight.Adornee
+        and needleHighlight.Adornee.Parent
+        and (needleHighlight.Adornee == target
+            or (target == nil and needleHighlight.Adornee == needleSphere
+                and (typeof(needleTargetPos) ~= "Vector3"
+                    or needleSphere.Position == needleTargetPos))) then
+        return
+    end
+    clearNeedleESP()
+
+    if typeof(target) ~= "Instance" or not target.Parent then
+        -- Position-only fallback: mark the broadcast spot with a visible
+        -- black ball (previously this sphere was built INVISIBLE - the bug).
+        if typeof(needleTargetPos) ~= "Vector3" then return end
+        local sphere = Instance.new("Part")
+        sphere.Name = "NeedleESPProxy"
+        sphere.Shape = Enum.PartType.Ball
+        sphere.Size = Vector3.new(2.5, 2.5, 2.5)
+        sphere.Anchored = true
+        sphere.CanCollide = false
+        sphere.CanQuery = false
+        sphere.Color = Color3.fromRGB(0, 0, 0)
+        sphere.Material = Enum.Material.Neon
+        sphere.Position = needleTargetPos
+        local parented = pcall(function() sphere.Parent = espHolder end)
+        if not parented or not sphere.Parent then return end
+        needleSphere = sphere
+        target = sphere -- highlight the proxy too
+    end
+
+    local hl = Instance.new("Highlight")
+    hl.Name = "NeedleHaystack_NeedleESP"
+    -- Solid black so it's unmistakable against the yellow hay.
+    hl.FillColor = Color3.fromRGB(0, 0, 0)
+    hl.OutlineColor = Color3.fromRGB(0, 0, 0)
+    hl.FillTransparency = 0.25
+    hl.OutlineTransparency = 0
+    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    hl.Adornee = target
+    local parented = pcall(function() hl.Parent = espHolder end)
+    if not parented or not hl.Parent then return end
+    needleHighlight = hl
+    -- (no rainbow animation - the needle/key ESP stays black)
+end
+
+-- Listen to the needle remotes even when ESP is off, so Instant Take always
+-- has the freshest target the moment the game reveals it.
+if NeedleTargetChanged then
+    NeedleTargetChanged.OnClientEvent:Connect(function(...)
+        local n = select("#", ...)
+        for i = 1, n do
+            local a = select(i, ...)
+            if typeof(a) == "Instance" then
+                needleTargetInst = a
+                local id = a.GetAttribute and a:GetAttribute("HayId")
+                if id then needleTargetId = id end
+            elseif typeof(a) == "Vector3" then
+                needleTargetPos = a
+            elseif typeof(a) == "number" then
+                needleTargetId = a
+            elseif typeof(a) == "CFrame" then
+                needleTargetPos = a.Position
+            elseif type(a) == "string" then
+                -- payload might be an instance NAME
+                local found = workspace:FindFirstChild(a, true)
+                if found then needleTargetInst = found end
+            elseif type(a) == "table" then
+                if type(a.Id) == "number" then needleTargetId = a.Id end
+                if type(a.id) == "number" then needleTargetId = a.id end
+                if typeof(a.Position) == "Vector3" then needleTargetPos = a.Position end
+                if typeof(a.position) == "Vector3" then needleTargetPos = a.position end
+                if typeof(a.pos) == "Vector3" then needleTargetPos = a.pos end
+            end
+        end
+        task.defer(updateNeedleESP)
+    end)
+end
+if NeedleFound then
+    NeedleFound.OnClientEvent:Connect(function(...)
+        local n = select("#", ...)
+        for i = 1, n do
+            local a = select(i, ...)
+            if typeof(a) == "Instance" then needleTargetInst = a end
+            if typeof(a) == "Vector3" then needleTargetPos = a end
+        end
+        task.defer(updateNeedleESP)
+    end)
+end
+
+-- ===================================================================
+-- INSTANT TAKE
+-- ===================================================================
+-- Fires PickHay with each piece's real HayId (verified live: FireServer(id)
+-- removes the piece server-side when you're in range). The server checks
+-- REAL character distance - no teleporting anymore (user request), so only
+-- pieces within 12 studs get fired. The server also rate-limits picks, so we
+-- pace fires at HayPickCooldown and re-fire anything it dropped later.
+--
+-- Priority: the needle's own piece first (as soon as the game reveals the
+-- target), then mutation pieces (they're worth more), then nearest pieces.
+-- Keep picking near the needle until the needle is claimed -> NeedleFound.
+--
+-- NOTE: one FIRE per loop tick, but with grasp/sweep upgrades that one fire
+-- grabs a whole cluster: PickHay also accepts FireServer(primaryId,
+-- { extraId, ... }) (user-verified arg shape), and each extra is a piece
+-- genuinely near the primary and inside the range check - no teleporting.
+
+-- Batched picks: if a batched fire is ever silently rejected (the primary
+-- piece is still alive 1.5s after the fire, 3 times in a row), batching is
+-- disabled for 60s and plain single-id fires resume, so picking NEVER
+-- breaks even if the server stops accepting the second argument.
+local batchFailures = 0
+local batchDisabledUntil = 0
+
+local function noteBatchOutcome(sentBatch, primary, id)
+    if not sentBatch then return end
+    task.delay(1.5, function()
+        local alive = primary.Parent ~= nil
+            and primary:GetAttribute("HayId") == id
+        if alive then
+            batchFailures = batchFailures + 1
+            if batchFailures >= 3 then
+                batchDisabledUntil = os.clock() + 60
+                batchFailures = 0
+            end
+        else
+            batchFailures = 0 -- piece got picked -> batch is working
+        end
+    end)
+end
+
+local function needleClaimed()
+    if LocalPlayer:GetAttribute("NeedleOwned") == true then return true end
+    local state = hayState()
+    return state ~= nil and state.needleClaimed == true
+end
+
+local function findPieceById(id)
+    local haystack = workspace:FindFirstChild("HaystackClient")
+    if not haystack then return nil end
+    for _, piece in ipairs(haystack:GetChildren()) do
+        if piece:GetAttribute("HayId") == id then return piece end
+    end
+    return nil
+end
+
+local function pickPiece(piece)
+    local root = getRoot()
+    if not root then return end
+    local id = piece:GetAttribute("HayId")
+    if not id then return end
+    local pos = piecePosition(piece)
+    if not pos then return end
+
+    local dist = (pos - root.Position).Magnitude
+    if dist <= 12 then
+        pcall(function() PickHay:FireServer(id) end)
+        return
+    end
+    -- The server distance-checks picks, so the ONLY client-side way past the
+    -- range is a teleport round-trip. Opt-in ("Range Bypass" toggle): save
+    -- the CFrame, blink to the piece, fire, blink back. Skipped entirely if
+    -- the sell round-trip is currently driving the character.
+    if not Settings.rangeBypass or teleportBusy then return end
+    teleportBusy = true
+    local saved = root.CFrame
+    pcall(function()
+        root.CFrame = CFrame.new(pos + Vector3.new(0, 2.5, 0))
+        task.wait(0.08)
+        pcall(function() PickHay:FireServer(id) end)
+        task.wait(0.08)
+        root.CFrame = saved
+    end)
+    teleportBusy = false
+end
+
+-- ===================================================================
+-- WEAPON PHASES (BETA, opt-in)
+-- ===================================================================
+-- The game's weapon controllers publish what the held tool is doing through
+-- HeldToolState:FireServer(tool, phase) (decompiled HeldToolPublish: phase
+-- defaults to "idle", clear = set(nil, nil)). Instant Take can replay the
+-- same publishes around each pick so the server sees a normal tool use.
+-- The exact phase vocabulary isn't in any dump we have, so a small list of
+-- plausible phases is tried one per pick and REMEMBERED only after an
+-- observed success (the primary piece that carried the fire got picked).
+local toolPhaseProbeIndex = {}
+local toolPhaseUsed = {}   -- [toolName] = phase that once preceded a pick
+local TOOL_PHASES = { "fire", "swing", "charging", "charge", "blast", "sweep" }
+local phaseLastPickAlive = {} -- [toolName] = primary piece sent with last phase
+
+local function noteWeaponPhase(pickPrimary)
+    if not Settings.weaponPhases or not HeldToolState then return end
+    local tool = currentToolName()
+    if not tool then return end
+    local learned = toolPhaseUsed[tool]
+    if learned then
+        pcall(function() HeldToolState:FireServer(tool, learned) end)
+    else
+        local idx = (toolPhaseProbeIndex[tool] or 0) % #TOOL_PHASES + 1
+        toolPhaseProbeIndex[tool] = idx
+        local phase = TOOL_PHASES[idx]
+        pcall(function() HeldToolState:FireServer(tool, phase) end)
+        -- Success learning: if the primary got picked within 1.5s while this
+        -- phase was in flight, remember it for this tool.
+        phaseLastPickAlive[tool] = pickPrimary
+        local toolAtFire, phaseAtFire = tool, phase
+        task.delay(1.5, function()
+            local sent = phaseLastPickAlive[toolAtFire]
+            if sent and sent.Parent ~= nil and phaseLastPickAlive[toolAtFire] == pickPrimary then
+                -- still alive -> the pick did NOT land with this phase; rotate
+                return
+            end
+            if not toolPhaseUsed[toolAtFire] then
+                toolPhaseUsed[toolAtFire] = phaseAtFire
+                print(("[SFN] weapon phase learned: %s -> %q"):format(toolAtFire, phaseAtFire))
+            end
+        end)
+    end
+end
+
+-- Pick a piece WITH its grab/sweep cluster: primary first, then every
+-- in-range piece within 8 studs of it gets sent as an extra id in the same
+-- fire (max 6 extras, matching the verified example). Falls back to the
+-- single-id fire when batching is disabled or nothing is nearby.
+local function pickPieceWithCluster(primary, haystack)
+    local root = getRoot()
+    if not root then return end
+    local id = primary:GetAttribute("HayId")
+    if not id then return end
+    local pos = piecePosition(primary)
+    if not pos then return end
+
+    if (pos - root.Position).Magnitude > 12 then
+        pickPiece(primary) -- out of range: TP-assist path (single fire) only
+        return
+    end
+
+    local extras = {}
+    if haystack and os.clock() >= batchDisabledUntil then
+        local near = {}
+        for _, piece in ipairs(haystack:GetChildren()) do
+            if piece ~= primary and piece:IsA("BasePart") and piece.Parent then
+                local pid = piece:GetAttribute("HayId")
+                if pid then
+                    local d = (piece.Position - pos).Magnitude
+                    if d <= 8 and (piece.Position - root.Position).Magnitude <= 12 then
+                        near[#near + 1] = { id = pid, d = d }
+                    end
+                end
+            end
+        end
+        table.sort(near, function(a, b) return a.d < b.d end)
+        for i = 1, math.min(#near, 6) do
+            extras[#extras + 1] = near[i].id
+        end
+    end
+
+    if #extras == 0 then
+        pcall(function() PickHay:FireServer(id) end)
+    else
+        pcall(function() PickHay:FireServer(id, extras) end)
+        noteBatchOutcome(true, primary, id)
+    end
+    -- Beta: publish the held tool's use phase around the pick (opt-in;
+    -- phase names are learned by observation, see WEAPON PHASES above).
+    noteWeaponPhase(primary)
+end
+
+local function instantTakeStep()
+    if needleClaimed() then return end
+    -- Range Bypass is opt-in: with it OFF, far pieces are simply not fired at
+    -- (pickPiece skips them), so the loop naturally harvests what's near you.
+    local haystack = workspace:FindFirstChild("HaystackClient")
+    local root = getRoot()
+    if not haystack or not root then return end
+
+    -- 1) If the needle target is known, take IT this tick: fire its exact
+    --    HayId, or the closest piece around its position until it pops.
+    if needleTargetId then
+        local piece = findPieceById(needleTargetId)
+        if piece then
+            pickPieceWithCluster(piece, haystack)
+            return
+        end
+    end
+    if needleTargetPos then
+        local best, bestD = nil, math.huge
+        for _, piece in ipairs(haystack:GetChildren()) do
+            if piece:IsA("BasePart") and piece.Parent then
+                local d = (piece.Position - needleTargetPos).Magnitude
+                if d < 7 and d < bestD then best, bestD = piece, d end
+            end
+        end
+        if best then
+            pickPieceWithCluster(best, haystack)
+            return
+        end
+    end
+
+    -- 2) No target yet: the needle reveals after enough picks land near it,
+    --    so harvest the single closest piece (mutations first: they pay
+    --    more, and picking NEAR the needle is what reveals it anyway).
+    local best, bestD = nil, math.huge
+    local bestMut, bestMutD = nil, math.huge
+    for _, piece in ipairs(haystack:GetChildren()) do
+        if piece:IsA("BasePart") and piece.Parent then
+            local d = (piece.Position - root.Position).Magnitude
+            if d < bestD then best, bestD = piece, d end
+            local mut = piece:GetAttribute("HayMutation")
+            if mut and mut ~= "Normal" and d < bestMutD then
+                bestMut, bestMutD = piece, d
+            end
+        end
+    end
+    if bestMut and bestMutD < 150 then
+        pickPieceWithCluster(bestMut, haystack)
+    elseif best then
+        pickPieceWithCluster(best, haystack)
+    end
+end
+
+-- ===================================================================
+-- AUTO SELL
+-- ===================================================================
+-- Fires SellHay the moment you hold 1+ hay (no capacity wait). The server
+-- distance-checks selling too, so the same opt-in Range Bypass applies: OFF
+-- = only sells when you're standing near the pad; ON = a far sell does one
+-- teleport round-trip (save CFrame -> blink to pad -> fire -> blink back).
+local function sellPosition()
+    local sellModel = workspace:FindFirstChild("SellModel")
+    local name = (type(Config.SELL_PART_NAME) == "string" and Config.SELL_PART_NAME) or "SellPart"
+    local part = sellModel and sellModel:FindFirstChild(name, true)
+    if part and part:IsA("BasePart") then return part.Position end
+    -- fallback: scan for any part with the config'd name
+    part = workspace:FindFirstChild(name, true)
+    if part and part:IsA("BasePart") then return part.Position end
+    return nil
+end
+
+local function hayHeld()
+    return tonumber(LocalPlayer:GetAttribute("HayHeld")) or 0
+end
+
+local function hayCapacity()
+    local cap = tonumber(LocalPlayer:GetAttribute("HayCapacity"))
+    if not cap or cap <= 0 then
+        cap = 25 -- sane pre-attribute fallback only
+    end
+    return cap
+end
+
+local function autoSellStep()
+    -- Sell as soon as we hold anything (user request: 1+ hay).
+    if hayHeld() < 1 then return end
+
+    local root = getRoot()
+    if not root then return end
+    local sellPos = sellPosition()
+    if not sellPos then return end
+    local dist = (sellPos - root.Position).Magnitude
+
+    if dist <= 14 then
+        pcall(function() SellHay:FireServer() end)
+        return
+    end
+    -- Far sell needs the server's range check bypassed -> opt-in TP only.
+    if not Settings.rangeBypass or teleportBusy then return end
+    teleportBusy = true
+    local saved = root.CFrame
+    pcall(function()
+        root.CFrame = CFrame.new(sellPos + Vector3.new(0, 4, 0))
+        task.wait(0.25)
+        pcall(function() SellHay:FireServer() end)
+        task.wait(0.35)
+        -- one retry if the first fire got dropped by the server's pacing
+        if hayHeld() > 0 then
+            pcall(function() SellHay:FireServer() end)
+            task.wait(0.35)
+        end
+        root.CFrame = saved
+    end)
+    teleportBusy = false
+end
+
+-- ===================================================================
+-- AUTO UPGRADE (cheapest affordable first)
+-- ===================================================================
+-- BuyUpgrade remote (verified): NeedleHaystack.BuyUpgrade:FireServer(track)
+-- where track is a UPGRADE_TRACKS key from the game's Config (Speed,
+-- DroneCapacity, HandHold, ...). Each pass buys the CHEAPEST affordable,
+-- non-maxed track. Levels are learned three ways: 1) read straight from
+-- player attributes (HayPickCooldown -> Speed level, HayCapacity ->
+-- Capacity level), 2) the exact cash-drop amount of a confirmed buy is
+-- matched against the cost table to pin the new level precisely, and
+-- 3) unknown tracks get PROBED (a free rejected fire) whenever their base
+-- guess would undercut the best known buy - so cheap tracks are never
+-- starved by an already-known pricier one. Costs come from the replicated
+-- Config (Hard-mode scaling already applied client-side too).
+
+local function cashAmount()
+    local ls = LocalPlayer:FindFirstChild("leaderstats")
+    local cash = ls and ls:FindFirstChild("Cash")
+    if cash and cash:IsA("ValueBase") then
+        return tonumber(cash.Value)
+    end
+    return nil
+end
+
+-- Confirmed/estimated levels + cost snapshot, reset per round and on toggle.
+local trackLevel = {}      -- [track] = CONFIRMED level we own (nil = unknown)
+local trackCosts = {}      -- [track] = { cost per level index }
+local trackBackoff = {}    -- [track] = os.clock() time until which we skip it
+local upgradeFired = {}    -- [track] = true while awaiting cash confirmation
+
+-- Last cash reading; used to attribute cash drops to our own purchase fires
+-- (an external drop like selling hay can't be misread as a confirmation).
+local lastCash = nil
+
+-- Some tracks broadcast their level through player attributes - read them
+-- so those tracks are known WITHOUT any probing. Manual estimates (from
+-- rejects) are kept via math.max so a stale attribute can't unwind them.
+local function deriveAttributeLevels()
+    local tracks = Config.UPGRADE_TRACKS
+    if not tracks then return end
+    local cd = tonumber(LocalPlayer:GetAttribute("HayPickCooldown"))
+    if cd and tracks.Speed and type(tracks.Speed.Levels) == "table" then
+        for i, entry in ipairs(tracks.Speed.Levels) do
+            if tonumber(entry.Cooldown) == cd then
+                trackLevel.Speed = math.max(trackLevel.Speed or 0, i)
+                break
+            end
+        end
+    end
+    local cap = tonumber(LocalPlayer:GetAttribute("HayCapacity"))
+    if cap and tracks.Capacity and type(tracks.Capacity.Levels) == "table" then
+        for i, entry in ipairs(tracks.Capacity.Levels) do
+            if tonumber(entry.Capacity) == cap then
+                trackLevel.Capacity = math.max(trackLevel.Capacity or 0, i)
+                break
+            end
+        end
+    end
+end
+
+-- Pick what to buy this pass. best = cheapest KNOWN affordable, non-maxed
+-- track. probe = cheapest-guessed unknown track (guess = its first paid
+-- level, i.e. assuming base). The probe wins whenever its guess undercuts
+-- the best known buy - that's what keeps purchasing genuinely cheapest
+-- while the level map is still filling in. Maxed tracks (next index past
+-- the level table) and backoff'd tracks are skipped entirely.
+local function pickUpgradeTarget(cash, now)
+    local best, bestCost = nil, math.huge
+    local probe, probeGuess = nil, math.huge
+    for _, track in ipairs(UPGRADE_PRIORITY) do
+        local costs = trackCosts[track]
+        if costs and (not trackBackoff[track] or now >= trackBackoff[track]) then
+            local lvl = trackLevel[track]
+            if lvl == nil then
+                local guess = costs[2]
+                if guess and guess < probeGuess then
+                    probe, probeGuess = track, guess
+                end
+            else
+                local nxt = costs[lvl + 1]
+                if nxt and nxt <= cash and nxt < bestCost then
+                    best, bestCost = track, nxt
+                end
+                -- nxt == nil -> past the last level -> maxed, skip
+            end
+        end
+    end
+    if probe and probeGuess <= cash and (best == nil or probeGuess < bestCost) then
+        return probe
+    end
+    return best
+end
+
+local function autoUpgradeStep()
+    if not BuyUpgrade then return end
+    local now = os.clock()
+    local cash = cashAmount()
+    -- Can't see cash -> can't safely decide; wait a pass.
+    if not cash or cash <= 0 then return end
+
+    -- If cash dropped between passes while a buy fire was still pending
+    -- (slow server confirm), credit that fire now. External drops (selling
+    -- hay, manual buys) leave no pending fires, so nothing is misattributed;
+    -- stale local levels self-correct via the rejection-probe path below.
+    if lastCash ~= nil and cash < lastCash then
+        for track in pairs(upgradeFired) do
+            local lvl = trackLevel[track] or 1
+            trackLevel[track] = lvl + 1
+            upgradeFired[track] = nil
+        end
+    end
+    lastCash = cash
+
+    -- Seed cost tables from the replicated Config once (HARD mode scaling is
+    -- already baked into UPGRADE_TRACKS by the time we read it).
+    if not trackCosts.Speed then
+        for _, track in ipairs(UPGRADE_PRIORITY) do
+            local def = Config.UPGRADE_TRACKS and Config.UPGRADE_TRACKS[track]
+            if def and type(def.Levels) == "table" then
+                local costs = {}
+                for i, entry in ipairs(def.Levels) do
+                    costs[i] = tonumber(entry.Cost)
+                end
+                trackCosts[track] = costs
+            end
+        end
+    end
+    -- Read whatever levels the game exposes as attributes (free, exact).
+    deriveAttributeLevels()
+
+    local target = pickUpgradeTarget(cash, now)
+    if not target then return end
+
+    local before = cash
+    pcall(function() BuyUpgrade:FireServer(target) end)
+    upgradeFired[target] = true
+    task.wait(0.75)
+    local after = cashAmount()
+    if after == nil then return end
+
+    if after < before then
+        -- Confirmed purchase. The cash drop IS the cost paid - match it
+        -- against the track's cost table to pin the new level EXACTLY
+        -- (costs are 0.05-granular, so round the diff to kill float noise).
+        local paid = math.floor((before - after) * 20 + 0.5) / 20
+        local newLvl = nil
+        local costs = trackCosts[target]
+        if costs then
+            for i, c in ipairs(costs) do
+                if c == paid then newLvl = i break end
+            end
+        end
+        trackLevel[target] = math.max(trackLevel[target] or 1, newLvl or ((trackLevel[target] or 1) + 1))
+        upgradeFired[target] = nil
+        lastCash = after
+        return
+    elseif after > before then
+        -- Cash moved UP during the wait (gem pickup, sell, etc) - state
+        -- unclear; retry this track again very soon instead of a backoff.
+        upgradeFired[target] = nil
+        return
+    end
+
+    -- Cash didn't move -> the fire was rejected: too expensive, locked, or
+    -- maxed. Unknown track: if we hold more than the track's highest cost
+    -- it can't get cheaper by waiting - likely locked/maxed, long backoff;
+    -- otherwise retry soon. Known track: the server's real level is ahead
+    -- of our count, so bump ours up - the estimate rises until the track is
+    -- either affordable-and-real or skipped as maxed.
+    upgradeFired[target] = nil
+    if trackLevel[target] == nil then
+        local costs = trackCosts[target]
+        local maxCost = 0
+        for _, c in ipairs(costs or {}) do
+            if c and c > maxCost then maxCost = c end
+        end
+        trackBackoff[target] = now + (cash >= maxCost and 600 or 30)
+    else
+        local costs = trackCosts[target]
+        if trackLevel[target] < #costs then
+            trackLevel[target] = trackLevel[target] + 1
+            trackBackoff[target] = now + 3
+        end
+        -- at the last level already -> maxed; nothing else to try
+    end
+end
+
+-- ===================================================================
+-- AUTO GEMS  (user-verified method)
+-- ===================================================================
+-- NeedleHaystack.CollectGem:FireServer(gemId) collects a gem, where the
+-- argument is a plain NUMBER (e.g. FireServer(65)) - an instance or a
+-- string gets silently dropped. Gems render client-side in
+-- workspace.GemsClient; the gem's id lives in its GemId/Id/DropId
+-- attribute (the Automation tab's debug dump shows the exact names if a
+-- gem ever carries it elsewhere). Only gems inside the chosen radius get
+-- fired, closest first - the server's own collect distance is 30
+-- (GemConfig.COLLECT_DISTANCE), so nothing past that can land anyway.
+-- No teleporting, no simulated input.
+local gemRemote = nil
+local gemFireAnnounced = false -- one-time console confirmation of first fire
+local function findGemRemote()
+    local r = NeedleHaystack:FindFirstChild("CollectGem")
+    if r then return r end
+    for _, c in ipairs(NeedleHaystack:GetChildren()) do
+        if c.Name:lower():find("gem") and (c:IsA("RemoteEvent") or c:IsA("RemoteFunction")) then
+            return c
+        end
+    end
+    return nil
+end
+
+local function gemsFolder()
+    return workspace:FindFirstChild("GemsClient")
+end
+
+local function gemIdOf(gem)
+    for _, name in ipairs({ "GemId", "Id", "DropId", "Gem" }) do
+        local v = gem:GetAttribute(name)
+        if type(v) == "number" or type(v) == "string" then return v end
+    end
+    -- Fallback: gems are named like "Gem_86" - the number after the
+    -- underscore IS the collect id (user-verified names Gem_86..Gem_89).
+    local n = tonumber(gem.Name:match("(%d+)"))
+    if n then return n end
+    return nil
+end
+
+local function autoGemsStep()
+    if not gemRemote or not gemRemote.Parent then
+        gemRemote = findGemRemote()
+        if not gemRemote then return end
+    end
+    local root = getRoot()
+    if not root then return end
+    local folder = gemsFolder()
+    if not folder then return end
+
+    -- Gather gems inside the chosen radius, closest first.
+    local inRange = {}
+    for _, gem in ipairs(folder:GetChildren()) do
+        if gem.Parent and (gem:IsA("BasePart") or gem:IsA("Model")) then
+            local pos = piecePosition(gem)
+            if pos then
+                local d = (pos - root.Position).Magnitude
+                if d <= Settings.gemRange then
+                    inRange[#inRange + 1] = { gem = gem, id = gemIdOf(gem), d = d }
+                end
+            end
+        end
+    end
+    table.sort(inRange, function(a, b) return a.d < b.d end)
+
+    -- Fire the NUMBER id, up to 4 gems per 0.3s tick (fast but not spammy).
+    -- Collected gems vanish on their own; a gem whose id can't be read gets
+    -- skipped rather than fired with a wrong-shaped argument.
+    local fired = 0
+    for _, entry in ipairs(inRange) do
+        if fired >= 4 then break end
+        if entry.id ~= nil then
+            pcall(function()
+                if gemRemote:IsA("RemoteEvent") then
+                    gemRemote:FireServer(entry.id)
+                else
+                    gemRemote:InvokeServer(entry.id)
+                end
+            end)
+            fired = fired + 1
+            -- one-time confirmation so it's visible in console that fires
+            -- are actually going out with the right-shaped argument
+            if not gemFireAnnounced then
+                gemFireAnnounced = true
+                print(("[SFN Gems] CollectGem fired for id %s (gem %s)"):format(
+                    tostring(entry.id), inRange[1].gem.Name))
+            end
+        end
+    end
+end
+
+-- ===================================================================
+-- GEM ESP (cyan)
+-- ===================================================================
+-- Highlights every gem currently in GemsClient in solid CYAN so they're
+-- easy to spot across the map and walk toward. Same sync model as the
+-- mutation ESP: ChildAdded/ChildRemoved watchers while enabled, plus a
+-- catch-up pass in the 1s ESP refresh loop.
+local gemHighlights = {}
+
+local function addGemESP(gem)
+    if not Settings.gemESP then return end
+    if gemHighlights[gem] then return end
+    if not gem:IsA("BasePart") and not gem:IsA("Model") then return end
+    local hl = Instance.new("Highlight")
+    hl.Name = "NeedleHaystack_GemESP"
+    hl.FillColor = Color3.fromRGB(0, 255, 255) -- cyan
+    hl.OutlineColor = Color3.fromRGB(0, 255, 255)
+    hl.FillTransparency = 0.35
+    hl.OutlineTransparency = 0
+    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    hl.Adornee = gem
+    local parented = pcall(function() hl.Parent = espHolder end)
+    if not parented or not hl.Parent then return end
+    gemHighlights[gem] = hl
+end
+
+local function removeGemESP(gem)
+    local hl = gemHighlights[gem]
+    if hl then
+        pcall(function() hl:Destroy() end)
+        gemHighlights[gem] = nil
+    end
+end
+
+local function clearGemESP()
+    for gem, hl in pairs(gemHighlights) do
+        pcall(function() hl:Destroy() end)
+    end
+    gemHighlights = {}
+end
+
+local function buildGemESP()
+    clearGemESP()
+    local folder = gemsFolder()
+    if not folder then return end
+    for _, gem in ipairs(folder:GetChildren()) do
+        addGemESP(gem)
+    end
+end
+
+local gemWatcherAdded, gemWatcherRemoved = nil, nil
+local function setGemWatchers(on)
+    if gemWatcherAdded then gemWatcherAdded:Disconnect() gemWatcherAdded = nil end
+    if gemWatcherRemoved then gemWatcherRemoved:Disconnect() gemWatcherRemoved = nil end
+    if on then
+        local folder = gemsFolder()
+        if folder then
+            gemWatcherAdded = folder.ChildAdded:Connect(function(gem)
+                task.defer(addGemESP, gem)
+            end)
+            gemWatcherRemoved = folder.ChildRemoved:Connect(removeGemESP)
+        end
+    end
+end
+
+-- Paste this output back if gems refuse to pop - it shows exactly what a
+-- gem is made of so the precise collect method can be wired.
+local function gemDebugDump()
+    local folder = gemsFolder()
+    if not folder then
+        print("[SFN Gems] No GemsClient folder right now")
+        return
+    end
+    print("[SFN Gems] " .. folder:GetFullName() .. " children=" .. #folder:GetChildren())
+    local root = getRoot()
+    for _, gem in ipairs(folder:GetChildren()) do
+        local attrs = {}
+        for k, v in pairs(gem:GetAttributes()) do attrs[#attrs + 1] = k .. "=" .. tostring(v) end
+        local kids = {}
+        for _, c in ipairs(gem:GetChildren()) do kids[#kids + 1] = c.ClassName .. ":" .. c.Name end
+        local dist = -1
+        local p = piecePosition(gem)
+        if p and root then dist = (p - root.Position).Magnitude end
+        print(("[SFN Gems] %s (%s) dist=%.1f attrs=[%s] children=[%s]"):format(
+            gem.Name, gem.ClassName, dist,
+            table.concat(attrs, ", "), table.concat(kids, ", ")))
+    end
+    local remotes = {}
+    for _, c in ipairs(NeedleHaystack:GetChildren()) do
+        if c:IsA("RemoteEvent") or c:IsA("RemoteFunction") then
+            remotes[#remotes + 1] = c.Name
+        end
+    end
+    print("[SFN Gems] gem remote: " .. (gemRemote and gemRemote.Name or "none found"))
+    print("[SFN Gems] all NeedleHaystack remotes: " .. table.concat(remotes, ", "))
+end
+
+-- ===================================================================
+-- AUTO TAKE HAY  (Automation tab)
+-- ===================================================================
+-- Simulated-input picking: whatever hay piece is under your crosshair gets
+-- a REAL virtual mouse move + click that HOLDS through the pick cooldown
+-- and releases when the server would accept the pick. This drives the game
+-- through the same input path your own clicks use, so it works with the
+-- hand, the pitchfork, the vacuum and whatever future tools do - no remotes
+-- touched. Instant Take (remote-based) is paused while this is on.
+
+-- While a click/hold is landing, nothing else touches the virtual mouse
+-- (aimLockUntil and getVIM are declared in HELPERS above; Auto Gems used to
+-- click too but now fires the CollectGem remote directly instead).
+
+-- Move the virtual mouse onto the screen point of a world position.
+-- Returns the screen coords (nil when off-screen or camera missing).
+local function moveMouseTo(worldPos)
+    local cam = workspace.CurrentCamera
+    if not cam then return nil end
+    local okP, sp = pcall(function()
+        return cam:WorldToViewportPoint(worldPos)
+    end)
+    if not okP or typeof(sp) ~= "Vector3" or sp.Z <= 0 then return nil end
+    local okV, vp = pcall(function() return cam.ViewportSize end)
+    if not okV or typeof(vp) ~= "Vector2" then return nil end
+    if sp.X < 0 or sp.Y < 0 or sp.X > vp.X or sp.Y > vp.Y then return nil end
+    pcall(function()
+        getVIM():SendMouseMoveEvent(sp.X, sp.Y, game)
+    end)
+    return sp.X, sp.Y
+end
+
+-- What's under the crosshair? Raycast from the camera through screen center;
+-- a hay piece (or anything inside it) wins. Forgiveness pass: if the ray
+-- misses (deep-buried center, big piece), allow the piece whose direction is
+-- within ~30 degrees of the view and within 40 studs, closest-to-center first.
+local hayRayParams = RaycastParams.new()
+hayRayParams.RespectCanCollide = false
+
+local function findHayTarget()
+    local cam = workspace.CurrentCamera
+    if not cam then return nil end
+    local haystack = workspace:FindFirstChild("HaystackClient")
+    if not haystack then return nil end
+
+    hayRayParams.FilterType = Enum.RaycastFilterType.Include
+    hayRayParams.FilterDescendantsInstances = { haystack }
+    local res = workspace:Raycast(
+        cam.CFrame.Position, cam.CFrame.LookVector * 300, hayRayParams)
+    if res and res.Instance then
+        local inst = res.Instance
+        while inst and inst.Parent ~= haystack do
+            inst = inst.Parent
+        end
+        if inst and inst.Parent == haystack then return inst end
+    end
+
+    local look = cam.CFrame.LookVector
+    local origin = cam.CFrame.Position
+    local best, bestScore = nil, math.huge
+    for _, piece in ipairs(haystack:GetChildren()) do
+        if piece:IsA("BasePart") and piece.Parent then
+            local off = piece.Position - origin
+            local d = off.Magnitude
+            if d > 1 and d <= 40 then
+                local cos = off.Unit:Dot(look)
+                if cos > 0.866 then -- inside a ~30 degree cone
+                    local score = (1 - cos) * 100 + d * 0.1
+                    if score < bestScore then best, bestScore = piece, score end
+                end
+            end
+        end
+    end
+    return best
+end
+
+-- Swing the camera onto a world position's X/Z while KEEPING the current
+-- pitch, so looking somewhere else snaps the view to that spot's column
+-- (used to face the revealed needle from anywhere).
+local function aimCameraXZ(worldPos)
+    local cam = workspace.CurrentCamera
+    if not cam or typeof(worldPos) ~= "Vector3" then return end
+    local camPos = cam.CFrame.Position
+    local flat = Vector3.new(worldPos.X - camPos.X, 0, worldPos.Z - camPos.Z)
+    if flat.Magnitude < 1 then return end
+    local look = cam.CFrame.LookVector
+    local pitch = math.asin(math.clamp(look.Y, -1, 1))
+    local dir = flat.Unit
+    local newLook = Vector3.new(dir.X * math.cos(pitch), math.sin(pitch), dir.Z * math.cos(pitch))
+    pcall(function()
+        cam.CFrame = CFrame.lookAt(camPos, camPos + newLook)
+    end)
+end
+
+-- Hold-style tools (grasp/sweep upgrades, vacuum-class) harvest on a held
+-- button; click tools swing once per press. Mode "Auto" guesses by tool
+-- name, and the dropdown's explicit modes override the guess.
+local function toolIsHoldType(toolName)
+    if not toolName then return false end
+    local n = toolName:lower()
+    return n:find("vacuum") ~= nil or n:find("pitchfork") ~= nil
+        or n:find("grasp") ~= nil or n:find("sweep") ~= nil
+end
+
+-- A held button must ALWAYS get its release (toggle off, needle claimed,
+-- lost target) or your real clicks stay stuck down.
+local lastHoldX, lastHoldY = 0, 0
+local holdMouseDown = false
+local function releaseHold()
+    if holdMouseDown then
+        local vim = getVIM()
+        if vim and vim.SendMouseButtonEvent then
+            pcall(function()
+                vim:SendMouseButtonEvent(lastHoldX, lastHoldY, 0, false, game, 0)
+            end)
+        end
+        holdMouseDown = false
+    end
+end
+
+local function autoClickHayStep()
+    if Settings.instantTake or Settings.autoFind then return end
+    if needleClaimed() then
+        releaseHold()
+        return
+    end
+    local vim = getVIM()
+    if not vim or not vim.SendMouseMoveEvent or not vim.SendMouseButtonEvent then
+        warn("[SFN] VirtualInputManager unavailable in this executor - Auto Take Hay can't simulate clicks. Turn it off.")
+        Settings.autoClick = false
+        releaseHold()
+        return
+    end
+    -- Revealed needle: put the camera on the needle's X/Z (pitch kept) so
+    -- the crosshair digs around it from anywhere on the map.
+    if needleTargetPos then
+        aimCameraXZ(needleTargetPos)
+        target = findHayTarget() -- re-aim AFTER the camera swing
+    end
+    if not target then
+        releaseHold()
+        task.wait(0.2)
+        return
+    end
+
+    aimLockUntil = os.clock() + 1.0
+    local sx, sy = moveMouseTo(piecePosition(target))
+    if not sx then
+        releaseHold()
+        task.wait(0.2)
+        return
+    end
+
+    local mode = Settings.autoClickMode or "Auto"
+    local holdType = (mode == "Always hold")
+        or (mode == "Auto" and toolIsHoldType(currentToolName()))
+
+    if holdType then
+        -- Sustained hold: keep the button down; hold tools harvest every
+        -- cooldown tick while it's down, so re-aim each pass and stay held.
+        lastHoldX, lastHoldY = sx, sy
+        pcall(function()
+            getVIM():SendMouseButtonEvent(sx, sy, 0, true, game, 0)
+        end)
+        holdMouseDown = true
+        task.wait(math.max(pickCooldown(), 0.3))
+    else
+        -- Click path: press through the whole cooldown window; the release
+        -- at the end makes the pick land exactly when the server accepts it.
+        pcall(function()
+            getVIM():SendMouseButtonEvent(sx, sy, 0, true, game, 0)
+        end)
+        task.wait(pickCooldown())
+        pcall(function()
+            getVIM():SendMouseButtonEvent(sx, sy, 0, false, game, 0)
+        end)
+        holdMouseDown = false
+        aimLockUntil = os.clock() + 0.15
+        task.wait(0.1)
+    end
+end
+
+-- ===================================================================
+-- GUI — USES LIBRARY, TAB STYLE
+-- ===================================================================
+local UI = Lib:Create("Search For A Needle", "SearchForTheNeedle")
+pcall(function() espHolder.Parent = workspace end)
+if not espHolder.Parent then espHolder.Parent = LocalPlayer:WaitForChild("PlayerGui") end
+
+-- Main tab (status reference)
+local mainTab = UI:Category("Main")
+mainTab:Button("Show Live Mutation Count", function()
+    local haystack = workspace:FindFirstChild("HaystackClient")
+    if not haystack then print("[SFN] No HaystackClient yet") return end
+    local counts = {}
+    for _, piece in ipairs(haystack:GetChildren()) do
+        local m = piece:GetAttribute("HayMutation")
+        counts[m] = (counts[m] or 0) + 1
+    end
+    local lines = {}
+    for m, c in pairs(counts) do lines[#lines+1] = tostring(m) .. " x" .. tostring(c) end
+    print("[SFN] Mutations on the pile:\n" .. table.concat(lines, "\n"))
+end)
+-- (Show Needle State also dumps every field of the state table)
+mainTab:Button("Show Needle State", function()
+    local ok, state = pcall(function() return GetHayState:InvokeServer() end)
+    if ok and type(state) == "table" then
+        print(("[SFN] remaining=%s revealed=%s claimed=%s"):format(
+            tostring(state.remaining), tostring(state.needleRevealed), tostring(state.needleClaimed)))
+        -- Full field dump: if the ESP still shows nothing after a reveal,
+        -- paste this so the exact field names can be wired directly.
+        local parts = {}
+        for k, v in pairs(state) do
+            if typeof(v) == "table" then
+                local n = 0
+                for _ in pairs(v) do n = n + 1 end
+                parts[#parts+1] = tostring(k) .. " = table(" .. n .. ")"
+            else
+                parts[#parts+1] = tostring(k) .. " = " .. tostring(v)
+            end
+        end
+        table.sort(parts)
+        print("[SFN] state fields:\n  " .. table.concat(parts, "\n  "))
+        -- this button doubles as a manual repair: feed whatever the state
+        -- table offers into the ESP and refresh right now
+        harvestNeedleIntel(state)
+        task.defer(updateNeedleESP)
+    else
+        print("[SFN] GetHayState failed: " .. tostring(state))
+    end
+    -- ESP diagnostics: what does the needle ESP actually see right now?
+    print("[SFN] ESP toggle: " .. tostring(Settings.needleESP))
+    print("[SFN] cached instance: " .. (typeof(needleTargetInst) == "Instance" and needleTargetInst:GetFullName() or "none"))
+    print("[SFN] cached position: " .. tostring(needleTargetPos))
+    print("[SFN] cached hay id: " .. tostring(needleTargetId)
+        .. " -> piece: " .. (needleTargetId and (function()
+            local p = findHayPieceById(needleTargetId)
+            return p and p:GetFullName() or "not found"
+        end)() or "n/a"))
+    local hit = findObjectiveInstance()
+    print("[SFN] workspace scan: " .. (hit and hit:GetFullName() or "no match"))
+    print("[SFN] highlight: " .. (needleHighlight and needleHighlight.Adornee
+        and needleHighlight.Adornee:GetFullName() or "none"))
+end)
+
+-- ESP tab
+local espTab = UI:Category("ESP")
+espTab:Toggle("Needle/Key ESP (always shows, black)", false, function(v)
+    Settings.needleESP = v
+    if v then task.spawn(updateNeedleESP) else clearNeedleESP() end
+end, "needleESP")
+espTab:Toggle("Hay Mutations ESP", false, function(v)
+    Settings.mutationESP = v
+    if v then
+        buildMutationESP()
+        setHayWatchers(true)
+    else
+        setHayWatchers(false)
+        clearMutationESP()
+    end
+end, "mutationESP")
+espTab:Toggle("Gem ESP (cyan)", false, function(v)
+    Settings.gemESP = v
+    if v then
+        buildGemESP()
+        setGemWatchers(true)
+    else
+        setGemWatchers(false)
+        clearGemESP()
+    end
+end, "gemESP")
+-- (manual Refresh button removed: mutations ESP now auto-refreshes every 1s)
+espTab:Button("Find Nearest Gem", function()
+    local folder = gemsFolder()
+    local root = getRoot()
+    if not folder then print("[SFN] No GemsClient folder right now") return end
+    if not root then print("[SFN] No character") return end
+    local best, bestD = nil, math.huge
+    for _, gem in ipairs(folder:GetChildren()) do
+        local p = piecePosition(gem)
+        if p then
+            local d = (p - root.Position).Magnitude
+            if d < bestD then best, bestD = gem, d end
+        end
+    end
+    if not best then print("[SFN] No gems spawned right now") return end
+    local p = piecePosition(best)
+    print(("[SFN] Nearest gem: %s at %s (%.1f studs) - gem ESP is on, so it's glowing cyan"):format(
+        best:GetFullName(), tostring(p), bestD))
+    gemHighlights[best] = gemHighlights[best] -- keep any existing highlight
+end)
+
+-- Auto Upgrade tab
+local upTab = UI:Category("Auto Upgrade")
+upTab:Toggle("Auto Upgrade (cheapest affordable first)", false, function(v)
+    Settings.autoUpgrade = v
+    if v then
+        lastCash = nil
+        upgradeFired = {}
+        trackLevel = {}
+        trackBackoff = {}
+    end
+end, "autoUpgrade")
+
+-- Instant Take tab
+local takeTab = UI:Category("Instant Take")
+-- NOTE: this fires PickHay directly (no mouse simulation). It auto-pauses
+-- while the Automation tab's "Auto Take Hay" is ON, so the two pickers
+-- never fight over the server's pick cooldown.
+takeTab:Toggle("Instant Take (remote picks)", false, function(v)
+    Settings.instantTake = v
+end, "instantTake")
+-- The server distance-checks picks, so Range Bypass is the opt-in switch for
+-- the teleport round-trip that gets past it. Starts OFF every paste, is NOT
+-- saved to config, and only picks while it's ON (user: no TP unless asked).
+takeTab:Toggle("Range Bypass (TP assist, OFF on rejoin)", false, function(v)
+    Settings.rangeBypass = v
+end, nil)
+
+-- The server's own pick cooldown is the real limit; expose it as an interval
+-- so you can slow it down if you want to look less robotic (never faster).
+local intervalBox = takeTab:Textbox("Pick interval (sec)", "0.45", "takeInterval")
+local function syncInterval()
+    local v = tonumber(intervalBox.Text)
+    if v then Settings.takeInterval = math.max(0.3, v) end
+end
+intervalBox:GetPropertyChangedSignal("Text"):Connect(function()
+    if not intervalBox:IsFocused() then syncInterval() end
+end)
+intervalBox.FocusLost:Connect(syncInterval)
+syncInterval()
+
+-- Automation tab: input-driven picking + gems
+local autoTab = UI:Category("Automation")
+autoTab:Toggle("Auto Take Hay (click/hold what you look at)", false, function(v)
+    Settings.autoClick = v
+    if not v then aimLockUntil = 0 end
+end, "autoClick")
+autoTab:Dropdown("Auto Take Hay mode", { "Auto", "Always hold", "Always click" }, "Auto", function(v)
+    Settings.autoClickMode = v
+end, "autoClickMode")
+autoTab:Toggle("Weapon phases (BETA - publish tool use)", false, function(v)
+    Settings.weaponPhases = v
+end, "weaponPhases")
+autoTab:Toggle("Auto Take Gems", false, function(v)
+    Settings.autoGems = v
+end, "autoGems")
+local gemRangeBox = autoTab:Textbox("Gem range (studs)", "15", "gemRange")
+local function syncGemRange()
+    local v = tonumber(gemRangeBox.Text)
+    -- The server's own gem collect distance is 30 (GemConfig), so anything
+    -- past that is a silent no-op - cap the setting there.
+    if v then Settings.gemRange = math.clamp(v, 1, 30) end
+end
+gemRangeBox:GetPropertyChangedSignal("Text"):Connect(function()
+    if not gemRangeBox:IsFocused() then syncGemRange() end
+end)
+gemRangeBox.FocusLost:Connect(syncGemRange)
+syncGemRange()
+autoTab:Button("Debug: Dump Nearby Gems", function()
+    gemDebugDump()
+end)
+autoTab:Button("Debug: What's Under Crosshair", function()
+    local t = findHayTarget()
+    if not t then print("[SFN] nothing hay-like under the crosshair") return end
+    local p = piecePosition(t)
+    local root = getRoot()
+    local d = (p and root) and (p - root.Position).Magnitude or -1
+    print(("[SFN] crosshair -> %s (%s), dist=%.1f, HayId=%s, mutation=%s"):format(
+        t:GetFullName(), t.ClassName, d,
+        tostring(t:GetAttribute("HayId")),
+        tostring(t:GetAttribute("HayMutation"))))
+end)
+
+-- ===================================================================
+-- AFK AUTO FIND  (whole tab - hands-off needle farming)
+-- ===================================================================
+-- One toggle does everything: it re-aims Instant Take at hay around you
+-- until the needle reveals, keep-digs until the needle is claimed, then
+-- (with the walk toggle on) WALKS to the sell pad to cash out so the next
+-- round starts fresh. No TP and no simulated input - the remote path is
+-- used on purpose (nothing here needs aim), and picks are paced by the
+-- server's own cooldown inside the shared pick loop below.
+
+local autoFindBobTime = 0 -- next micro-move (anti-AFK) time
+local function autoFindBob(now)
+    if now < autoFindBobTime then return end
+    autoFindBobTime = now + 45
+    local root = getRoot()
+    if root then
+        pcall(function()
+            root.CFrame = root.CFrame * CFrame.new(0, 0.5, 0)
+        end)
+    end
+end
+
+local function afkFindStep()
+    if needleClaimed() then return end
+    autoFindBob(os.clock())
+    pcall(instantTakeStep) -- same pacing Instant Take uses (server cooldown)
+end
+
+local afkTab = UI:Category("AFK Auto Find")
+afkTab:Toggle("AFK Find Needle (walks to sell, next round)", false, function(v)
+    Settings.autoFind = v
+    -- taking over the dig loop: pause plain Instant Take so one picker owns
+    -- the cooldown (the AFK step runs it itself whenever IT is on)
+    if v then Settings.instantTake = false end
+end, "autoFind")
+afkTab:Toggle("AFK: Walk to Sell Pad", false, function(v)
+    Settings.autoFindWalk = v
+end, "autoFindWalk")
+afkTab:Button("AFK: Status", function()
+    local root = getRoot()
+    print(("[SFN AFK] enabled=%s walk=%s claimed=%s held=%g/%g pos=%s"):format(
+        tostring(Settings.autoFind), tostring(Settings.autoFindWalk),
+        tostring(needleClaimed()), hayHeld(), hayCapacity(),
+        root and tostring(root.Position) or "?"))
+end)
+
+-- Auto Sell tab
+local sellTab = UI:Category("Auto Sell")
+sellTab:Toggle("Auto Sell (fires with 1+ hay)", false, function(v)
+    Settings.autoSell = v
+end, "autoSell")
+sellTab:Button("Show Capacity / Held", function()
+    print(("[SFN] Held: %g / %g"):format(hayHeld(), hayCapacity()))
+end)
+
+-- ===================================================================
+-- LOOPS
+-- ===================================================================
+task.spawn(function()
+    while UI._frame and UI._frame.Parent do
+        -- Needle/key ESP: re-scan every second (findObjectiveInstance has no
+        -- reveal gate anymore, so the black highlight appears as soon as the
+        -- needle/key exists anywhere in the workspace). Once YOU own the
+        -- needle the highlight is pointless, so drop it.
+        if Settings.needleESP then
+            if LocalPlayer:GetAttribute("NeedleOwned") == true then
+                pcall(clearNeedleESP)
+            else
+                pcall(updateNeedleESP)
+            end
+        end
+        -- Gem ESP catch-up: gems spawn/despawn fast (reveal every 0.7s),
+        -- so the same 1s pass re-syncs highlights for any that the watchers
+        -- missed (e.g. GemsClient folder appearing after the toggle went on).
+        if Settings.gemESP then
+            pcall(function()
+                local folder = gemsFolder()
+                if folder then
+                    for _, gem in ipairs(folder:GetChildren()) do
+                        if not gemHighlights[gem] then addGemESP(gem) end
+                    end
+                end
+            end)
+        end
+        -- Mutation ESP auto-refresh (every 1s, no button): picks up new
+        -- mutation pieces AND rebuilds highlights whose HayMutation attribute
+        -- changed (e.g. indexed mutation -> brand new unknown one, or a
+        -- mutation reverting to Normal), so colors never go stale.
+        if Settings.mutationESP then
+            pcall(function()
+                local haystack = workspace:FindFirstChild("HaystackClient")
+                if haystack then
+                    for _, piece in ipairs(haystack:GetChildren()) do
+                        local hl = pieceHighlights[piece]
+                        if hl and hl.Parent then
+                            if hl:GetAttribute("MutName") ~= piece:GetAttribute("HayMutation") then
+                                removePieceESP(piece)
+                                addPieceESP(piece)
+                            end
+                        else
+                            addPieceESP(piece)
+                        end
+                    end
+                end
+            end)
+        end
+        task.wait(1)
+    end
+end)
+
+task.spawn(function()
+    while UI._frame and UI._frame.Parent do
+        if Settings.instantTake and not Settings.autoClick then
+            -- paused while Auto Take Hay drives the (shared) pick cooldown
+            pcall(instantTakeStep)
+        elseif Settings.autoFind then
+            -- AFK Auto Find owns the dig when plain Instant Take is off
+            pcall(afkFindStep)
+        end
+        -- never fire faster than the server's own pick cooldown allows
+        task.wait(math.max(Settings.takeInterval, pickCooldown()))
+    end
+end)
+
+task.spawn(function()
+    -- Auto Take Hay: click/hold whatever is under the crosshair. Each pass
+    -- holds one full cooldown (step waits inside), so this loop just spins.
+    while UI._frame and UI._frame.Parent do
+        if Settings.autoClick then
+            pcall(autoClickHayStep)
+        else
+            task.wait(0.2)
+        end
+    end
+end)
+
+task.spawn(function()
+    while UI._frame and UI._frame.Parent do
+        if Settings.autoSell then
+            pcall(autoSellStep)
+        end
+        task.wait(0.5)
+    end
+end)
+
+task.spawn(function()
+    -- AFK Auto Find round-rollover: once the needle is claimed and hay is
+    -- held, WALK (Humanoid:MoveTo, no TP) to the sell pad and cash out so
+    -- the next round starts fresh. Digging continues the whole time via
+    -- afkFindStep in the pick loop above.
+    while UI._frame and UI._frame.Parent do
+        if Settings.autoFind and Settings.autoFindWalk and not teleportBusy then
+            pcall(function()
+                if hayHeld() < 1 then return end
+                local root = getRoot()
+                local sellPos = sellPosition()
+                if not root or not sellPos then return end
+                local hum = root.Parent and root.Parent:FindFirstChildOfClass("Humanoid")
+                if not hum then return end
+                local dist = (sellPos - root.Position).Magnitude
+                if dist <= 14 then
+                    hum:MoveTo(root.Position) -- stop at the pad
+                    pcall(function() SellHay:FireServer() end)
+                    task.wait(0.35)
+                    if hayHeld() > 0 then
+                        pcall(function() SellHay:FireServer() end)
+                        task.wait(0.35)
+                    end
+                else
+                    hum:MoveTo(sellPos) -- walk toward the pad (no teleport)
+                end
+            end)
+        end
+        task.wait(0.5)
+    end
+end)
+
+task.spawn(function()
+    -- Auto Upgrade: one attempt per pass; the step itself paces fires 0.75s
+    -- apart while it watches for a cash drop confirming the purchase.
+    while UI._frame and UI._frame.Parent do
+        if Settings.autoUpgrade then
+            pcall(autoUpgradeStep)
+        end
+        task.wait(1)
+    end
+end)
+
+task.spawn(function()
+    -- Auto Gems: quick ticks - prompt/click/remote attempts against the
+    -- closest few gems per tick (see AUTO GEMS header for the strategy).
+    while UI._frame and UI._frame.Parent do
+        if Settings.autoGems then
+            pcall(autoGemsStep)
+        end
+        task.wait(0.3)
+    end
+end)
+
+-- Full cleanup when the GUI is closed so no highlights linger on the pile.
+UI._frame.Destroying:Connect(function()
+    Settings.instantTake = false
+    Settings.autoClick = false
+    Settings.mutationESP = false
+    Settings.needleESP = false
+    Settings.autoSell = false
+    Settings.autoUpgrade = false
+    Settings.autoGems = false
+    Settings.gemESP = false
+    Settings.autoFind = false
+    Settings.autoFindWalk = false
+    Settings.weaponPhases = false
+    Settings.rangeBypass = false -- never leave TP assist armed
+    releaseHold() -- never leave a virtual mouse button stuck down
+    setHayWatchers(false)
+    setGemWatchers(false)
+    clearMutationESP()
+    clearGemESP()
+    clearNeedleESP()
+    pcall(function() espHolder:Destroy() end)
+end)
